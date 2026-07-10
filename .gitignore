@@ -67,3 +67,7 @@ TextMesh Pro
 Library
 *.csproj
 Runtime/Mapbox/VectorModule/MeshGeneration/.idea
+
+# Internal benchmark tool, kept local-only
+Runtime/Mapbox/Example/Scripts/TileProviderBenchmark.cs
+Runtime/Mapbox/Example/Scripts/TileProviderBenchmark.cs.meta

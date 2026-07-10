@@ -1,16 +1,17 @@
 using System;
+using System.Collections;
 using System.Linq;
 using Mapbox.BaseModule;
 using Mapbox.BaseModule.Data.DataFetchers;
-using Mapbox.BaseModule.Data.Interfaces;
 using Mapbox.BaseModule.Data.Platform.Cache;
 using Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache;
 using Mapbox.BaseModule.Map;
 using Mapbox.BaseModule.Unity;
+using Mapbox.BaseModule.Unity.ModuleBehaviours;
 using Mapbox.BaseModule.Utilities;
-using Mapbox.Example.Scripts.ModuleBehaviours;
 using Mapbox.Example.Scripts.TileProviderBehaviours;
 using Mapbox.ImageModule.Terrain.TerrainStrategies;
+using Mapbox.LocationModule;
 using Mapbox.UnityMapService;
 using Mapbox.UnityMapService.TileProviders;
 using UnityEngine;
@@ -23,28 +24,56 @@ namespace Mapbox.Example.Scripts.Map
         public UnityContext UnityContext;
 
         [SerializeField] protected TileCreatorBehaviour _tileCreatorBehaviour;
+        [Tooltip("Material used when no TileCreatorBehaviour is assigned. Asset reference keeps the shader alive in player builds. If you swap in a TileCreatorBehaviour, this field is ignored.")]
+        [SerializeField] protected Material _defaultTileMaterial;
         [SerializeField] protected TileProviderBehaviour TileProvider;
         [SerializeField] protected DataFetchingManagerBehaviour DataFetcher;
         [SerializeField] protected MapboxCacheManagerBehaviour CacheManager;
+        [SerializeField] protected LocationProviderFactory LocationFactory;
         private MapService _mapService;
         
         public bool InitializeOnStart = true;
         public Action<MapService> MapServiceReady = (v) => { };
 
+        
         public virtual void Start()
         {
             if (InitializeOnStart)
-                Initialize();
+                StartCoroutine(Initialize());
         }
-        
+
         [ContextMenu("Initialize")]
-        public override void Initialize()
+        public override IEnumerator Initialize()
         {
             if (InitializationStatus != InitializationStatus.WaitingForInitialization)
-                return;
+                yield break;
 
             MapInformation.Initialize();
-            UnityContext.Initialize();
+            
+            yield return UnityContext.Initialize();
+            //we handle permission via unity, instead of using location providers themselves
+            yield return UnityContext.HandlePermission();
+            
+            if (Application.isEditor || UnityContext.LocationPermissionState == LocationPermissionState.Granted)
+            {
+                if (LocationFactory != null)
+                {
+                    yield return LocationFactory.Initialize();
+                    var locationProvider = LocationFactory.DefaultLocationProvider;
+                    var latLng = locationProvider.CurrentLocation.LatitudeLongitude;
+                    // An unavailable provider (service start timeout, no first
+                    // fix) still reports the struct default (0,0) — don't stomp
+                    // the map's configured or fallback center with Null Island.
+                    if (Math.Abs(latLng.Latitude) > 0.01 || Math.Abs(latLng.Longitude) > 0.01)
+                    {
+                        MapInformation.SetLatitudeLongitude(latLng);
+                    }
+                }
+            }
+            else
+            {
+                Debug.Log("Location permission is " + UnityContext.LocationPermissionState);
+            }
             
             var moduleScripts = GetComponents<ModuleConstructorScript>();
             if (moduleScripts == null || moduleScripts.Length == 0)
@@ -58,26 +87,20 @@ namespace Mapbox.Example.Scripts.Map
             }
 
             var mapboxContext = new MapboxContext();
+            yield return mapboxContext.Initialize();
             _mapService = GetMapService(mapboxContext, UnityContext);
             MapServiceReady(_mapService);
-
+            
             MapboxMap = CreateMapObject();
             MapboxMap.Initialized += InitializationCompleted;
-            StartCoroutine(MapboxMap.Initialize());
+            yield return MapboxMap.Initialize();
         }
+        
 
         private void InitializationCompleted()
         {
             Initialized(MapboxMap);
             MapboxMap.LoadMapView();
-        }
-
-        private void Update()
-        {
-            if (InitializationStatus == InitializationStatus.ReadyForUpdates && _mapService.IsReady())
-            {
-                MapboxMap.MapUpdated();
-            }
         }
         
         private void OnValidate()
@@ -95,8 +118,6 @@ namespace Mapbox.Example.Scripts.Map
             MapboxMap?.OnDestroy();
             UnityContext.OnDestroy();
         }
-
-        
         
         protected virtual MapboxMap CreateMapObject()
         {
@@ -121,8 +142,19 @@ namespace Mapbox.Example.Scripts.Map
             }
             else
             {
-                var defaultMapboxTerrainMaterial = new Material(Shader.Find(Constants.Map.DefaultTerrainShaderName));
-                tileCreator = new TileCreator(unityContext, new[] { defaultMapboxTerrainMaterial });
+                // Fallback when no TileCreatorBehaviour is assigned on the GameObject.
+                // The Material is taken from a direct asset reference (_defaultTileMaterial)
+                // so its shader survives player-build shader stripping — Shader.Find can't
+                // resolve shaders that aren't referenced from a shipped Material or listed
+                // in Project Settings → Graphics → Always Included Shaders.
+                if (_defaultTileMaterial == null)
+                {
+                    throw new InvalidOperationException(
+                        $"MapboxMapBehaviour on '{name}' has no TileCreator assigned and no default tile Material set. " +
+                        "Assign a TileCreatorBehaviour on this GameObject, or drag a Material (e.g. ElevatedTerrainMaterial) " +
+                        "into the 'Default Tile Material' field on MapboxMapBehaviour.");
+                }
+                tileCreator = new TileCreator(unityContext, new[] { _defaultTileMaterial });
             }
             return new MapboxMapVisualizer(mapInfo, unityContext, tileCreator);
         }

@@ -149,15 +149,6 @@ namespace Mapbox.BaseModule.Telemetry
 
 		public void SetLocationCollectionState(bool enable)
 		{
-			if (enable)
-			{
-				Input.location.Start();
-			}
-			else
-			{
-				Input.location.Stop();
-			}
-			
 			_telemetryUtilsClass.CallStatic(_setEventsCollectionStatMethodName, enable, null);
 		}
 

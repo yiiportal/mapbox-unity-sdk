@@ -216,7 +216,7 @@ namespace Mapbox.BaseModule.Data.Tiles
 			return new Vector4(scale, scale, offsetX, offsetY);
 		}
 		
-		public static Vector4 CalculateTopRightScaleOffsetAtZoom(this CanonicalTileId current, int zoomDiff)
+		public static Vector4 CalculateTopLeftScaleOffsetAtZoom(this CanonicalTileId current, int zoomDiff)
 		{
 			var tileZoom = current.Z;
 

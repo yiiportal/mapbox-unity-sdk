@@ -2,18 +2,18 @@
 {
     public struct RectD
     {
-        public Vector2d TopLeft { get; private set; }
-        public Vector2d BottomRight { get; private set; }
+        public Vector2d TopLeft;
+        public Vector2d BottomRight;
         //size is absolute width&height so Min+size != max
-        public Vector2d Size { get; private set; }
-        public Vector2d Center { get; private set; }
+        public Vector2d Size;
+        public Vector2d Center;
         
         public RectD(Vector2d topLeft, Vector2d size)
         {
             TopLeft = topLeft;
-            BottomRight = topLeft + size;
+            BottomRight = new Vector2d(topLeft.x + size.x, topLeft.y + size.y); //topLeft + size;
             Center = new Vector2d(TopLeft.x + size.x / 2, TopLeft.y + size.y / 2);
-            Size = new Vector2d(Mathd.Abs(size.x), Mathd.Abs(size.y));
+            Size = size; //new Vector2d(Mathd.Abs(size.x), Mathd.Abs(size.y));
         }
 
         public bool Contains(Vector2d point)

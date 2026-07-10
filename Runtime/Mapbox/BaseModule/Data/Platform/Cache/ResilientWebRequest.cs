@@ -41,6 +41,15 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
                 _request = null;
             }
 			
+            // iOS_App_Review_Gaps.md #139 — guard against malformed or non-HTTP(S) URLs
+            if (string.IsNullOrEmpty(RawUri) ||
+                !Uri.TryCreate(RawUri, UriKind.Absolute, out var parsedUri) ||
+                (parsedUri.Scheme != Uri.UriSchemeHttps && parsedUri.Scheme != Uri.UriSchemeHttp))
+            {
+                UnityEngine.Debug.LogWarning($"[ResilientWebRequest] Skipped Ready — invalid or malformed URL: '{RawUri}'");
+                return this;
+            }
+
             _request = UnityWebRequest.Get(RawUri);
             _request.timeout = _timeout;
             if (!string.IsNullOrEmpty(_etag))

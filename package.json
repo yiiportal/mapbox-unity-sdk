@@ -1,12 +1,13 @@
 {
     "name": "com.mapbox.sdk",
-    "version": "3.0.7",
+    "version": "3.1.0",
     "displayName": "Mapbox Unity SDK",
     "description": "Mapbox Unity SDK",
     "unity": "2022.3",
     "dependencies": {
         "com.unity.render-pipelines.universal": "10.10.1",
-	"com.unity.nuget.newtonsoft-json": "3.2.1"
+	"com.unity.nuget.newtonsoft-json": "3.2.1",
+	"com.unity.burst": "1.8.12"
     },
     "author": {
         "name": "Mapbox",
@@ -33,6 +34,11 @@
             "displayName": "GeocodingApiDemo",
             "description": "Geocoding Api Demo",
             "path": "Runtime/Mapbox/GeocodingApi/Samples~/GeocodingApiDemo"
+        },
+        {
+            "displayName": "MapboxComponents",
+            "description": "Mapbox Components Demo",
+            "path": "Samples~/MapboxComponents"
         }
     ]
 }

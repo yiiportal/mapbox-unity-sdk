@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using Mapbox.BaseModule.Map;
 using UnityEngine;
 
@@ -15,9 +16,9 @@ namespace Mapbox.BaseModule.Utilities
                                                                 : InitializationStatus.WaitingForInitialization;
         public Action<MapboxMap> Initialized = (m) => { };
 
-        public virtual void Initialize()
+        public virtual IEnumerator Initialize()
         {
-            
+            yield return null;
         }
     }
 }

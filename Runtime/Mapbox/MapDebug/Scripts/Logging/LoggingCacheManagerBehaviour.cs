@@ -1,8 +1,7 @@
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Platform.Cache;
-using Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache;
 using Mapbox.BaseModule.Unity;
-using Mapbox.Example.Scripts.ModuleBehaviours;
+using Mapbox.BaseModule.Unity.ModuleBehaviours;
 using Mapbox.MapDebug.Scripts.Logging;
 using UnityEngine;
 

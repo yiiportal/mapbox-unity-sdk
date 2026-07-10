@@ -88,3 +88,56 @@ To create a basic map in your own Unity scene, follow these simple steps:
 
 
 ---
+
+## Common Tasks
+
+### Place a GameObject at a latitude / longitude
+
+To position your own object (a marker, a character avatar, a custom POI) at a specific geographic coordinate, use `IMapInformation.ConvertLatLngToPosition`:
+
+```csharp
+using Mapbox.BaseModule.Data.Vector2d;
+using Mapbox.Example.Scripts.Map;
+using UnityEngine;
+
+public class PlaceMarker : MonoBehaviour
+{
+    public MapboxMapBehaviour MapBehaviour;
+    public Transform Marker;
+
+    private void Start()
+    {
+        // Wait until the map is ready, then place the marker.
+        MapBehaviour.MapboxMap.Initialized += OnMapReady;
+    }
+
+    private void OnMapReady()
+    {
+        var coord = new LatitudeLongitude(40.7484, -73.9857); // Empire State Building
+        var localPos = MapBehaviour.MapboxMap.MapInformation.ConvertLatLngToPosition(coord);
+
+        // Parent under the map root so the marker composes with any transform applied
+        // to the map hierarchy (rotation, translation, AR anchor, etc.).
+        Marker.SetParent(MapBehaviour.UnityContext.MapRoot, worldPositionStays: false);
+        Marker.localPosition = localPos;
+    }
+}
+```
+
+**Important**: the value `ConvertLatLngToPosition` returns is in the **map's local coordinate system**, not world space. Always assign it to `localPosition` of a Transform parented under `UnityContext.MapRoot`, never to `transform.position`. This composes correctly with any parent transformations (useful for AR/MR scenarios where the map is anchored to a real-world surface).
+
+For optional **terrain elevation** (drop your object onto the terrain surface instead of at Y=0), use `MapboxMap.TryGetElevation(latlng, out float elevation)`:
+
+```csharp
+if (MapBehaviour.MapboxMap.TryGetElevation(coord, out var elevation))
+{
+    localPos.y = elevation;
+}
+Marker.localPosition = localPos;
+```
+
+If the map moves (via `MapboxMap.ChangeView`, `MapInformation.SetInformation`, or `ShiftMapForDistance`), object positions need to be re-computed. Subscribe to `IMapInformation.ViewChanged` and re-run the conversion when it fires.
+
+See also `Documentation~/CoordinateConversions.md` for the full coordinate-conversion contract, and `Documentation~/WorkingWithPois.md` if your data lives in a Mapbox vector tile layer (e.g. `poi_label`) rather than from your own backend.
+
+---

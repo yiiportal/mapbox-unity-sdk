@@ -1,17 +1,18 @@
 using System;
 using System.Collections.Generic;
+using Mapbox.VectorTile.Geometry;
 using UnityEngine;
 
 namespace Mapbox.VectorModule.MeshGeneration
 {
 	public static class EarcutLibrary
 	{
-		public static List<int> Earcut(List<float> data, List<int> holeIndices, int dim)
+		public static List<int> Earcut(float[] data, List<int> holeIndices, int dim)
 		{
 			dim = Math.Max(dim, 2);
 
 			var hasHoles = holeIndices.Count;
-			var outerLen = hasHoles > 0 ? holeIndices[0] * dim : data.Count;
+			var outerLen = hasHoles > 0 ? holeIndices[0] * dim : data.Length;
 			var outerNode = linkedList(data, 0, outerLen, dim, true);
 			var triangles = new List<int>((int)(outerNode.i * 1.5));
 
@@ -27,7 +28,52 @@ namespace Mapbox.VectorModule.MeshGeneration
 			if (hasHoles > 0) outerNode = EliminateHoles(data, holeIndices, outerNode, dim);
 
 			// if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
-			if (data.Count > 80 * dim)
+			if (data.Length > 80 * dim)
+			{
+				minX = maxX = data[0];
+				minY = maxY = data[1];
+
+				for (var i = dim; i < outerLen; i += dim)
+				{
+					x = data[i];
+					y = data[i + 1];
+					if (x < minX) minX = x;
+					if (y < minY) minY = y;
+					if (x > maxX) maxX = x;
+					if (y > maxY) maxY = y;
+				}
+
+				// minX, minY and size are later used to transform coords into integers for z-order calculation
+				size = Math.Max(maxX - minX, maxY - minY);
+			}
+
+			earcutLinked(outerNode, triangles, dim, minX, minY, size);
+
+			return triangles;
+		}
+		
+		public static List<int> Earcut(float[] data, int[] holeIndices, int dim)
+		{
+			dim = Math.Max(dim, 2);
+
+			var hasHoles = holeIndices.Length;
+			var outerLen = hasHoles > 0 ? holeIndices[0] * dim : data.Length;
+			var outerNode = linkedList(data, 0, outerLen, dim, true);
+			var triangles = new List<int>((int)(outerNode.i * 1.5));
+
+			if (outerNode == null) return triangles;
+			var minX = 0f;
+			var minY = 0f;
+			var maxX = 0f;
+			var maxY = 0f;
+			var x = 0f;
+			var y = 0f;
+			var size = 0f;
+
+			if (hasHoles > 0) outerNode = EliminateHoles(data, holeIndices, outerNode, dim);
+
+			// if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
+			if (data.Length > 80 * dim)
 			{
 				minX = maxX = data[0];
 				minY = maxY = data[1];
@@ -380,7 +426,7 @@ namespace Mapbox.VectorModule.MeshGeneration
 			return list;
 		}
 
-		private static Node EliminateHoles(List<float> data, List<int> holeIndices, Node outerNode, int dim)
+		private static Node EliminateHoles(float[] data, List<int> holeIndices, Node outerNode, int dim)
 		{
 			var i = 0;
 			var len = holeIndices.Count;
@@ -391,16 +437,39 @@ namespace Mapbox.VectorModule.MeshGeneration
 			for (i = 0; i < len; i++)
 			{
 				start = holeIndices[i] * dim;
-				end = i < len - 1 ? holeIndices[i + 1] * dim : data.Count;
+				end = i < len - 1 ? holeIndices[i + 1] * dim : data.Length;
 				list = linkedList(data, start, end, dim, false);
 				if (list == list.next) list.steiner = true;
 				queue.Add(getLeftmost(list));
 			}
 
-			queue.Sort(delegate (Node a, Node b)
+			queue.Sort(delegate(Node a, Node b) { return a.x.CompareTo(b.x); });
+
+			// process holes from left to right
+			for (i = 0; i < queue.Count; i++)
 			{
-				return (int)Math.Ceiling(a.x - b.x);
-			});
+				EliminateHole(queue[i], outerNode);
+				outerNode = FilterPoints(outerNode, outerNode.next);
+			}
+
+			return outerNode;
+		}
+		
+		private static Node EliminateHoles(float[] data, int[] holeIndices, Node outerNode, int dim)
+		{
+			var i = 0;
+			var len = holeIndices.Length;
+			var queue = new List<Node>(len);
+			for (i = 0; i < len; i++)
+			{
+				var start = holeIndices[i] * dim;
+				var end = i < len - 1 ? holeIndices[i + 1] * dim : data.Length;
+				var list = linkedList(data, start, end, dim, false);
+				if (list == list.next) list.steiner = true;
+				queue.Add(getLeftmost(list));
+			}
+
+			queue.Sort((a, b) => a.x.CompareTo(b.x));
 
 			// process holes from left to right
 			for (i = 0; i < queue.Count; i++)
@@ -495,9 +564,11 @@ namespace Mapbox.VectorModule.MeshGeneration
 							if (hy == p.y) return p;
 							if (hy == p.next.y) return p.next;
 						}
+
 						m = p.x < p.next.x ? p : p.next;
 					}
 				}
+
 				p = p.next;
 			} while (p != outerNode);
 
@@ -540,9 +611,9 @@ namespace Mapbox.VectorModule.MeshGeneration
 
 		private static bool locallyInside(Node a, Node b)
 		{
-			return area(a.prev, a, a.next) < 0 ?
-		area(a, b, a.next) >= 0 && area(a, a.prev, b) >= 0 :
-		area(a, b, a.prev) < 0 || area(a, a.next, b) < 0;
+			return area(a.prev, a, a.next) < 0
+				? area(a, b, a.next) >= 0 && area(a, a.prev, b) >= 0
+				: area(a, b, a.prev) < 0 || area(a, a.next, b) < 0;
 		}
 
 		private static float area(Node p, Node q, Node r)
@@ -571,7 +642,7 @@ namespace Mapbox.VectorModule.MeshGeneration
 		}
 
 		// create a circular doubly linked list from polygon points in the specified winding order
-		private static Node linkedList(List<float> data, int start, int end, int dim, bool clockwise)
+		private static Node linkedList(float[] data, int start, int end, int dim, bool clockwise)
 		{
 			var i = 0;
 			Node last = null;
@@ -608,7 +679,7 @@ namespace Mapbox.VectorModule.MeshGeneration
 			return p1.x == p2.x && p1.y == p2.y;
 		}
 
-		private static float signedArea(List<float> data, int start, int end, int dim)
+		private static float signedArea(float[] data, int start, int end, int dim)
 		{
 			var sum = 0f;
 			var j = end - dim;
@@ -649,39 +720,90 @@ namespace Mapbox.VectorModule.MeshGeneration
 				totalVertCount += data[i].Count;
 			}
 
-			var result = new Data() { Dim = 2 };
-			result.Vertices = new List<float>(totalVertCount * 2);
+			var result = new Data();
+			result.Vertices = new float[totalVertCount * 2];
+			result.Holes = new int[dataCount - 1];
 			var holeIndex = 0;
 
+			var index = 0;
+			var holeNumber = 0;
 			for (var i = 0; i < dataCount; i++)
 			{
 				var subCount = data[i].Count;
 				for (var j = 0; j < subCount; j++)
 				{
-					result.Vertices.Add(data[i][j][0]);
-					result.Vertices.Add(data[i][j][2]);
+					result.Vertices[index++] = (data[i][j][0]);
+					result.Vertices[index++] = (data[i][j][2]);
 				}
+
 				if (i > 0)
 				{
 					holeIndex += data[i - 1].Count;
-					result.Holes.Add(holeIndex);
+					result.Holes[holeNumber++] = (holeIndex);
 				}
 			}
+
+			return result;
+		}
+		
+		// public static Data Flatten(MeshVertexData meshData, List<Vector2Int> subs)
+		// {
+		// 	var dataCount = subs.Count;
+		// 	var totalVertCount = 0;
+		// 	for (int i = 0; i < dataCount; i++)
+		// 	{
+		// 		totalVertCount += subs[i].y - subs[i].x;
+		// 	}
+		//
+		// 	var result = new Data
+		// 	{
+		// 		Vertices = new float[totalVertCount * 2],
+		// 		Holes = new int[dataCount - 1]
+		// 	};
+		// 	var holeIndex = 0;
+		//
+		// 	var index = 0;
+		// 	var holeNumber = 0;
+		// 	for (var i = 0; i < dataCount; i++)
+		// 	{
+		// 		var subCount = subs[i].y - subs[i].x;
+		// 		for (var j = 0; j < subCount; j++)
+		// 		{
+		// 			result.Vertices[index++] = (meshData.Vertices[subs[i].x + j][0]);
+		// 			result.Vertices[index++] = (meshData.Vertices[subs[i].x + j][2]);
+		// 		}
+		//
+		// 		if (i > 0)
+		// 		{
+		// 			holeIndex = subs[i].x;
+		// 			result.Holes[holeNumber++] = (holeIndex);
+		// 		}
+		// 	}
+		//
+		// 	return result;
+		// }
+
+		public static Data Flatten(Span<Vector3> meshData)
+		{
+			var result = new Data
+			{
+				Vertices = new float[meshData.Length * 2]
+			};
+
+			for (var i = 0; i < meshData.Length; i++)
+			{
+				result.Vertices[i*2 + 0] = meshData[i][0];
+				result.Vertices[i*2 + 1] = meshData[i][2];
+			}
+
 			return result;
 		}
 	}
 
 	public class Data
 	{
-		public List<float> Vertices;
-		public List<int> Holes;
-		public int Dim;
-
-		public Data()
-		{
-			Holes = new List<int>();
-			Dim = 2;
-		}
+		public float[] Vertices;
+		public int[] Holes;
 	}
 
 	public class Node

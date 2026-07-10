@@ -13,10 +13,11 @@ namespace Mapbox.BaseModuleTests
         private string _configAccessToken;
         private Func<string> _configSkuToken;
 
-        [SetUp]
-        public void SetUp()
+        [UnitySetUp]
+        public IEnumerator SetUp()
         {
             var mapboxContext = new MapboxContext();
+            yield return mapboxContext.LoadConfigurationCoroutine(false);
             _tokenApi = new MapboxTokenApi();
             _configAccessToken = mapboxContext.GetAccessToken();
             _configSkuToken = mapboxContext.GetSkuToken;

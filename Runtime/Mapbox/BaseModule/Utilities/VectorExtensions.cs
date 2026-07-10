@@ -141,5 +141,26 @@ namespace Mapbox.BaseModule.Utilities
 		{
 			return position.ToVector3xz().GetGeoPosition(refPoint, scale);
 		}
+
+		/// <summary>
+		/// Raycast from a screen position onto a plane and return the intersection point.
+		/// Safer than manual ray math — handles edge cases like rays parallel to the plane.
+		/// </summary>
+		/// <param name="camera">Camera to raycast from.</param>
+		/// <param name="plane">Target plane for intersection.</param>
+		/// <param name="screenPosition">Screen-space position (e.g. Input.mousePosition).</param>
+		/// <param name="hit">World-space intersection point. Zero if no intersection.</param>
+		/// <returns>True if the ray intersects the plane.</returns>
+		public static bool GetPlaneIntersection(this Camera camera, Plane plane, Vector3 screenPosition, out Vector3 hit)
+		{
+			hit = Vector3.zero;
+			var ray = camera.ScreenPointToRay(screenPosition);
+			if (plane.Raycast(ray, out var distance))
+			{
+				hit = ray.GetPoint(distance);
+				return true;
+			}
+			return false;
+		}
 	}
 }

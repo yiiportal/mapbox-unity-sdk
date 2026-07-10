@@ -490,7 +490,7 @@ GameObject:
   m_Component:
   - component: {fileID: 525849129}
   - component: {fileID: 525849128}
-  - component: {fileID: 525849127}
+  - component: {fileID: 525849131}
   - component: {fileID: 525849130}
   m_Layer: 0
   m_Name: LocationModule
@@ -499,26 +499,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &525849127
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 525849124}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0a38712e93231418a84665190b8473d0, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _desiredAccuracyInMeters: 5
-  _updateDistanceInMeters: 5
-  _updateTimeInMilliSeconds: 1000
-  _userHeadingSmoothing: {fileID: 0}
-  _deviceOrientationSmoothing: {fileID: 0}
-  _editorDebuggingOnly:
-    _mockUnityInputLocation: 0
-    _locationLogFile: {fileID: 0}
 --- !u!114 &525849128
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -531,10 +511,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b55f37f9a6f7e44f7bb35e6bc3863847, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _deviceLocationProviderUnity: {fileID: 525849127}
-  _deviceLocationProviderAndroid: {fileID: 0}
-  _editorLocationProvider: {fileID: 525849130}
-  _transformLocationProvider: {fileID: 0}
+  LocationProviderType: 1
+  _mapboxLocationProviderSettings:
+    AccuracyLevel: 0
+    Displacement: 0
+    MinimumInterval: 0
+    MaximumInterval: 0
+    Interval: 0
+  _unityLocationProviderSettings:
+    DesiredAccuracyInMeters: 1
+    UpdateDistanceInMeters: 0
+    UpdateTimeInMilliSeconds: 500
+  EditorLatitudeLongitude: 60.1712373,24.9435977
   _dontDestroyOnLoad: 0
 --- !u!4 &525849129
 Transform:
@@ -560,14 +548,27 @@ MonoBehaviour:
   m_GameObject: {fileID: 525849124}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 60712efc3153a4819b0c79437175846d, type: 3}
+  m_Script: {fileID: 11500000, guid: a5534c9989da84262bc64ffe27afbbb6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  _accuracy: 0
-  _autoFireEvent: 1
-  _updateInterval: 0
-  _sendEvent: 0
-  _latitudeLongitude: 60.1712373,24.9435977
+  Map: {fileID: 1316629399}
+  LocationProviderFactory: {fileID: 525849128}
+  ShiftMapDistance: 500
+--- !u!114 &525849131
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 525849124}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 137870786121148788eada666e6cd719, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _transform: {fileID: 220147485}
+  _locationProvider: {fileID: 525849128}
+  _mapCore: {fileID: 1316629399}
 --- !u!1 &545031483
 GameObject:
   m_ObjectHideFlags: 0
@@ -1609,10 +1610,9 @@ GameObject:
   m_Component:
   - component: {fileID: 1316629400}
   - component: {fileID: 1316629399}
+  - component: {fileID: 1316629405}
   - component: {fileID: 1316629404}
   - component: {fileID: 1316629402}
-  - component: {fileID: 7512784582834766863}
-  - component: {fileID: 1377339556045437848}
   m_Layer: 0
   m_Name: Map
   m_TagString: Untagged
@@ -1639,14 +1639,17 @@ MonoBehaviour:
     _latitudeLongitudeString: 60.1712373,24.9435977
     _zoom: 15
   UnityContext:
+    LocationPermissionState: 0
     MapRoot: {fileID: 1316629400}
     BaseTileRoot: {fileID: 0}
     RuntimeGenerationRoot: {fileID: 0}
   _tileCreatorBehaviour: {fileID: 0}
+  _defaultTileMaterial: {fileID: 2100000, guid: a6a681001a245ce4089aea4634eee2b8, type: 2}
   TileProvider: {fileID: 8067237297740704311}
   DataFetcher: {fileID: 0}
   CacheManager: {fileID: 0}
-  InitializeOnStart: 0
+  LocationFactory: {fileID: 525849128}
+  InitializeOnStart: 1
 --- !u!4 &1316629400
 Transform:
   m_ObjectHideFlags: 0
@@ -1707,6 +1710,21 @@ MonoBehaviour:
       CacheSize: 100
       ClampDataLevelToMax: 25
     RejectTilesOutsideZoom: {x: 2, y: 25}
+--- !u!114 &1316629405
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1316629397}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2fa13573d971f40649081b02ffc8366c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  TileMaterials:
+  - {fileID: 2100000, guid: a6a681001a245ce4089aea4634eee2b8, type: 2}
+  CacheSize: 25
 --- !u!1 &1326738087
 GameObject:
   m_ObjectHideFlags: 0
@@ -3578,21 +3596,6 @@ SkinnedMeshRenderer:
     m_Center: {x: -0.0038077123, y: 0.003856523, z: 0.0011322275}
     m_Extent: {x: 0.049188334, y: 0.023567023, z: 0.03146985}
   m_DirtyAABB: 0
---- !u!114 &1377339556045437848
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1316629397}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 137870786121148788eada666e6cd719, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _transform: {fileID: 220147485}
-  _locationProvider: {fileID: 525849128}
-  _mapCore: {fileID: 1316629399}
 --- !u!1 &6450514213955001649
 GameObject:
   m_ObjectHideFlags: 0
@@ -3610,22 +3613,6 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &7512784582834766863
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1316629397}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 46cd4a863e31244f891143a5bab077bc, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  InitializeMap: 1
-  ContinueAfterInitialization: 0
-  _locationProvider: {fileID: 525849128}
-  _map: {fileID: 1316629399}
 --- !u!114 &8067237297740704311
 MonoBehaviour:
   m_ObjectHideFlags: 0

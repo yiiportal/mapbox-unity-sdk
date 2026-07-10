@@ -658,6 +658,7 @@ MonoBehaviour:
     CoroutineStarter: {fileID: 1316629399}
     Root: {fileID: 1316629400}
     TileMaterials: []
+  _defaultTileMaterial: {fileID: 2100000, guid: a6a681001a245ce4089aea4634eee2b8, type: 2}
   InitializeOnStart: 1
 --- !u!4 &1316629400
 Transform:

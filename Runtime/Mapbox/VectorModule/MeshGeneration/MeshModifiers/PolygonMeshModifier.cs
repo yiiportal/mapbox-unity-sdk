@@ -77,7 +77,7 @@ namespace Mapbox.VectorModule.MeshGeneration.MeshModifiers
 				if (IsClockwise(sub) && vertCount > 0)
 				{
 					flatData = EarcutLibrary.Flatten(subset);
-					result = EarcutLibrary.Earcut(flatData.Vertices, flatData.Holes, flatData.Dim);
+					result = EarcutLibrary.Earcut(flatData.Vertices, flatData.Holes, 2);
 					polygonVertexCount = result.Count;
 					if (triList == null)
 					{
@@ -127,7 +127,7 @@ namespace Mapbox.VectorModule.MeshGeneration.MeshModifiers
 			}
 
 			flatData = EarcutLibrary.Flatten(subset);
-			result = EarcutLibrary.Earcut(flatData.Vertices, flatData.Holes, flatData.Dim);
+			result = EarcutLibrary.Earcut(flatData.Vertices, flatData.Holes, 2);
 			polygonVertexCount = result.Count;
 
 			// if (_options.texturingType == UvMapType.Atlas || _options.texturingType == UvMapType.AtlasWithColorPalette)

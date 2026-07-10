@@ -123,7 +123,7 @@ namespace Mapbox.MapDebug.Scripts.Logging
         {
             base.OnTaskFinished(task);
             
-            if (task is MeshGenTaskWrapper meshTask)
+            if (task is MeshGenTaskWrapper<MeshGenTaskWrapperResult> meshTask)
             {
                 var time = task.FinishedTime - task.StartingTime;
                 _meshGenTaskCount++;

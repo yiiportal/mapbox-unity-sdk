@@ -1,13 +1,19 @@
-﻿using Mapbox.BaseModule.Unity;
+using Mapbox.BaseModule.Unity;
 using Mapbox.ImageModule.Terrain.Settings;
 using Mapbox.ImageModule.Terrain.TerrainStrategies;
 using UnityEngine;
 
 namespace Mapbox.BaseModule.Utilities
 {
+	/// <summary>
+	/// Terrain strategy used when no terrain module is present. Writes a shared 4-vertex
+	/// flat quad into each tile's mesh and (optionally) shares that quad as a MeshCollider.
+	/// Has no elevation sampling; ignores <c>SimplificationFactor</c>.
+	/// </summary>
 	public class FlatTerrainStrategy : TerrainStrategy
 	{
 		MeshDataArray _cachedQuad;
+		private TerrainColliderOptions _colliderOptions;
 
 		public int RequiredVertexCount => 4;
 
@@ -15,13 +21,31 @@ namespace Mapbox.BaseModule.Utilities
 		{
 			BuildQuad();
 		}
-		
+
+		/// <summary>
+		/// Captures the subset of <see cref="ElevationLayerProperties"/> this strategy cares
+		/// about (currently just collider options). Safe to pass <c>null</c>.
+		/// </summary>
+		public override void Initialize(ElevationLayerProperties elOptions)
+		{
+			if (elOptions != null)
+			{
+				_colliderOptions = elOptions.colliderOptions;
+			}
+		}
+
+		/// <summary>
+		/// Writes the flat quad into <paramref name="tile"/>'s mesh if not already present,
+		/// and optionally attaches a MeshCollider backed by the same quad. The
+		/// <paramref name="createElevatedMesh"/> flag is unused — flat terrain has no
+		/// elevation.
+		/// </summary>
 		public override void RegisterTile(UnityMapTile tile, bool createElevatedMesh)
 		{
 			var meshFilter = tile.MeshFilter;
 			if (meshFilter.sharedMesh.vertexCount != RequiredVertexCount)
 			{
-				
+
 				var sharedMesh = tile.MeshFilter.sharedMesh;
 				sharedMesh.Clear();
 
@@ -36,12 +60,24 @@ namespace Mapbox.BaseModule.Utilities
 			}
 
 			tile.MeshVertexCount = RequiredVertexCount;
+
+			if (_colliderOptions != null && _colliderOptions.addCollider)
+			{
+				var meshCollider = tile.GetComponent<MeshCollider>();
+				if (meshCollider == null)
+				{
+					meshCollider = tile.gameObject.AddComponent<MeshCollider>();
+				}
+				// The flat quad is already the collision surface; reuse it directly rather
+				// than allocating a dedicated mesh as ElevatedTerrainStrategy does.
+				meshCollider.sharedMesh = meshFilter.sharedMesh;
+			}
 		}
-		
+
 		private void BuildQuad()
 		{
 			var size = 1;
-		
+
 			//32
 			//01
 			var verts = new Vector3[4];

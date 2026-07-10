@@ -182,20 +182,23 @@ namespace Mapbox.VectorModule.MeshGeneration.MeshModifiers
         {
             minHeight = 0.0f;
             maxHeight = 0.0f;
-            
-            try
+
+            if (feature.Properties.ContainsKey("height"))
             {
                 maxHeight = Convert.ToSingle(feature.Properties["height"]);
             }
-            catch (Exception)
+            else
             {
-                Debug.LogError("Property: '" + "height" + "' must contain a numerical value for extrusion.");
-                return;
+                maxHeight = 0;
             }
 
             if (feature.Properties.ContainsKey("min_height"))
             {
                 minHeight = Convert.ToSingle(feature.Properties["min_height"]);
+            }
+            else
+            {
+                minHeight = 0;
             }
                     
         }

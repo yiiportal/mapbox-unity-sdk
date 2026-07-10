@@ -11,10 +11,11 @@ namespace Mapbox.BaseModuleTests
     {
         private DataFetchingManager _dataFetcher;
 
-        [SetUp]
-        public void SetUp()
+        [UnitySetUp]
+        public IEnumerator SetUp()
         {
             var mapboxContext = new MapboxContext();
+            yield return mapboxContext.LoadConfigurationCoroutine(false);
             _dataFetcher = new DataFetchingManager(mapboxContext.GetAccessToken(), mapboxContext.GetSkuToken);
         }
 		

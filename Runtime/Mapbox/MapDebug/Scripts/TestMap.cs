@@ -1,3 +1,4 @@
+using System.Collections;
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Interfaces;
 using Mapbox.BaseModule.Data.Platform.Cache;
@@ -16,10 +17,11 @@ namespace Mapbox.MapDebug.Scripts
 {
     public class TestMap : MonoBehaviour
     {
-        public void Start()
+        public IEnumerator Start()
         {
             var mapInfo = new MapInformation("60.1734031,24.9428875");
             var mapboxContext = new MapboxContext();
+            yield return mapboxContext.Initialize();
             var unityContext = new UnityContext();
 
             var taskManager = new TaskManager();

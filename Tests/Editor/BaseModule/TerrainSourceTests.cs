@@ -28,10 +28,14 @@ namespace Mapbox.BaseModuleTests
         private CanonicalTileId _testTileId = new CanonicalTileId(16, 37310, 18968);
         private Texture2D _testTexture;
         private RasterData _testRasterData;
+        private bool _initialized;
 
-        [OneTimeSetUp]
-        public void OneTimeSetUp()
+        [UnitySetUp]
+        public IEnumerator OneTimeSetUp()
         {
+            if (_initialized) yield break;
+            _initialized = true;
+
             _testTexture = Texture2D.whiteTexture;
             _testRasterData = new TerrainData()
             {
@@ -44,6 +48,7 @@ namespace Mapbox.BaseModuleTests
             };
 
             var mapboxContext = new MapboxContext();
+            yield return mapboxContext.LoadConfigurationCoroutine(false);
             var unityContext = new UnityContext();
             var taskManager = new MockTaskManager();
             taskManager.Initialize();

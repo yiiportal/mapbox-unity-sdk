@@ -30,12 +30,21 @@ namespace Mapbox.BaseModule.Map
             return scaledDeltaMercatorVector3;
         }
         
-        public static Vector3 ConvertLatLngToPosition(this IMapInformation mapInfo, LatitudeLongitude latlng)
+        public static Vector3 ConvertLatLngToPosition(this IMapInformation mapInfo, LatitudeLongitude latlng, bool queryElevation = false)
         {
             var mercator = Conversions.LatitudeLongitudeToWebMercator(latlng);
             var deltaMercator = mercator - mapInfo.CenterMercator;
             var scaledDeltaMercator = deltaMercator / mapInfo.Scale;
-            var scaledDeltaMercatorVector3 = scaledDeltaMercator.ToVector3xz();
+            var elevation = 0f;
+            
+            if (queryElevation)
+            {
+                var tileId = Conversions.LatitudeLongitudeToTileId(latlng, 14).Canonical;
+                var pointPosition = Conversions.LatitudeLongitudeToInTile01(latlng, tileId);
+                elevation = mapInfo.QueryElevation(tileId, pointPosition.x, pointPosition.y);
+            }
+            
+            var scaledDeltaMercatorVector3 = new Vector3((float)scaledDeltaMercator.x, elevation, (float)scaledDeltaMercator.y);
             
             return scaledDeltaMercatorVector3;
         }

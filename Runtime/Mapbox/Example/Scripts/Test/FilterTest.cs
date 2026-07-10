@@ -1,10 +1,7 @@
-using System.Linq;
 using Mapbox.BaseModule.Utilities;
 using Mapbox.Example.Scripts.Map;
-using Mapbox.Example.Scripts.ModuleBehaviours;
 using Mapbox.VectorModule;
 using Mapbox.VectorModule.Filters;
-using Mapbox.VectorModule.Unity;
 using UnityEngine;
 
 namespace Mapbox.Example.Scripts.Test

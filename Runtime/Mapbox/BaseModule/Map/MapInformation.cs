@@ -48,10 +48,16 @@ namespace Mapbox.BaseModule.Map
         public virtual void Initialize(LatitudeLongitude latitudeLongitude)
         {
             if(_isInitialized) return;
-            
+
             SetLatitudeLongitude(latitudeLongitude);
             _isInitialized = true;
             QueryElevation = (tileId, x, y) => 0;
+            // Reset terrain bounds to TerrainInfo defaults so a previous map's Min/Max
+            // never bleeds into a fresh session. Field initializers already set defaults
+            // on new MapInformation instances, but explicitly resetting here guards
+            // against future paths that reuse an existing instance.
+            Terrain.MinElevation = TerrainInfo.DefaultMinElevation;
+            Terrain.MaxElevation = TerrainInfo.DefaultMaxElevation;
         }
 
         //PROPERTIES
@@ -99,7 +105,7 @@ namespace Mapbox.BaseModule.Map
             if(zoom.HasValue) Zoom = zoom.Value;
             if (pitch.HasValue) Pitch = pitch.Value;
             if (bearing.HasValue) Bearing = bearing.Value;
-            if (scale.HasValue)
+            if (scale.HasValue && !Mathf.Approximately(scale.Value, Scale))
             {
                 Scale = scale.Value;
                 OnWorldScaleChanged();
@@ -117,6 +123,7 @@ namespace Mapbox.BaseModule.Map
         }
 
         public Func<CanonicalTileId, float, float, float> QueryElevation { get; set; }
+        public TerrainInfo Terrain { get; } = new TerrainInfo();
         public event Action<IMapInformation> SetView = (t) => {};
         public event Action<IMapInformation> ViewChanged = (t) => {};
         public event Action<IMapInformation> LatitudeLongitudeChanged = (t) => {};

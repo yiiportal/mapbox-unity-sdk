@@ -2,7 +2,7 @@ using Mapbox.Example.Scripts.Map;
 using UnityEditor;
 using UnityEngine;
 
-namespace Mapbox.Example.Scripts.Editor
+namespace Mapbox.Example.Editor
 {
     [CustomEditor(typeof(MapboxMapBehaviour))]
     public class MapboxMapBehaviourEditor : UnityEditor.Editor
@@ -11,9 +11,11 @@ namespace Mapbox.Example.Scripts.Editor
         private SerializedProperty _unityContextProp;
 
         private SerializedProperty _tileCreatorProp;
+        private SerializedProperty _defaultTileMaterialProp;
         private SerializedProperty _tileProviderProp;
         private SerializedProperty _dataFetcherProp;
         private SerializedProperty _cacheManagerProp;
+        private SerializedProperty _locationFactoryProp;
         private SerializedProperty _initializeOnStart;
 
         private GUIStyle _headerStyle;
@@ -27,9 +29,11 @@ namespace Mapbox.Example.Scripts.Editor
             _unityContextProp  = serializedObject.FindProperty("UnityContext");
 
             _tileCreatorProp   = serializedObject.FindProperty("_tileCreatorBehaviour");
+            _defaultTileMaterialProp = serializedObject.FindProperty("_defaultTileMaterial");
             _tileProviderProp  = serializedObject.FindProperty("TileProvider");
             _dataFetcherProp   = serializedObject.FindProperty("DataFetcher");
             _cacheManagerProp  = serializedObject.FindProperty("CacheManager");
+            _locationFactoryProp = serializedObject.FindProperty("LocationFactory");
             _initializeOnStart  = serializedObject.FindProperty("InitializeOnStart");
         }
 
@@ -76,9 +80,10 @@ namespace Mapbox.Example.Scripts.Editor
                     EditorGUILayout.PropertyField(_tileProviderProp, new GUIContent("Tile Provider"));
                     EditorGUILayout.PropertyField(_dataFetcherProp, new GUIContent("Data Fetcher"));
                     EditorGUILayout.PropertyField(_cacheManagerProp, new GUIContent("Cache Manager"));
+                    EditorGUILayout.PropertyField(_locationFactoryProp, new GUIContent("Location Factory"));
 
                     if (_tileCreatorProp == null && _tileProviderProp == null && _dataFetcherProp == null &&
-                        _cacheManagerProp == null)
+                        _cacheManagerProp == null && _locationFactoryProp == null)
                     {
                         EditorGUILayout.HelpBox("Drag & drop your script components here.", MessageType.Info);
                     }
@@ -92,6 +97,7 @@ namespace Mapbox.Example.Scripts.Editor
                 if (!_overrideModulesFold)
                 {
                     EditorGUILayout.PropertyField(_initializeOnStart, new GUIContent("Initialize On Start"));
+                    EditorGUILayout.PropertyField(_defaultTileMaterialProp, new GUIContent("Default Tile Material"));
                 }
             }
 

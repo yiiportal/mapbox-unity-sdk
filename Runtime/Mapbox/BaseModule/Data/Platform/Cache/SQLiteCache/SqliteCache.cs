@@ -16,6 +16,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 	public class SqliteCache : ISqliteCache, IDisposable
 	{
 		public event Action<string> DataPrunedForFile = s => { };
+		public event Action DatabaseCleared = () => { };
 
 		public const int PruneCacheDelta = 20;
 		
@@ -227,7 +228,8 @@ CONSTRAINT tileAssignmentConstraint UNIQUE (tileId, mapId)
 			}
 			catch (Exception ex)
 			{
-				Debug.LogErrorFormat("Error inserting {0} {1} {2} ", tilesetName, tileId, ex);
+				var extended = (ex is SQLiteException) ? SQLite3.ExtendedErrCode(_sqlite.Handle).ToString() : "n/a";
+				Debug.LogErrorFormat("Error inserting {0} {1} (extended={2}) {3} ", tilesetName, tileId, extended, ex);
 			}
 
 			// update counter only when new tile gets inserted
@@ -379,6 +381,7 @@ CONSTRAINT tileAssignmentConstraint UNIQUE (tileId, mapId)
 				return false;
 			}
 
+			DatabaseCleared();
 			return true;
 		}
 
@@ -415,6 +418,7 @@ CONSTRAINT tileAssignmentConstraint UNIQUE (tileId, mapId)
 				Debug.LogError(error);
 			}
 
+			DatabaseCleared();
 			return isDeletedSuccesfully;
 		}
 		

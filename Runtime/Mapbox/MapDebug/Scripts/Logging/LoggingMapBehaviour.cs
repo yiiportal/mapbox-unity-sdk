@@ -1,13 +1,13 @@
 using System;
+using System.Collections;
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Platform.Cache;
 using Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache;
 using Mapbox.BaseModule.Map;
 using Mapbox.BaseModule.Unity;
+using Mapbox.BaseModule.Unity.ModuleBehaviours;
 using Mapbox.BaseModule.Utilities;
-using Mapbox.Example.Scripts.ModuleBehaviours;
 using Mapbox.Example.Scripts.TileProviderBehaviours;
-using Mapbox.ImageModule.Terrain.TerrainStrategies;
 #if UNITY_RECORDER && UNITY_EDITOR
 using Mapbox.MapDebug.Sequence;
 #endif
@@ -43,7 +43,7 @@ namespace Mapbox.MapDebug.Scripts.Logging
         }
         
         [ContextMenu("Initialize Map")]
-        public override void Initialize()
+        public override IEnumerator Initialize()
         {
             _mapLogger = FindObjectOfType<MapLogger>();
 #if UNITY_RECORDER && UNITY_EDITOR
@@ -55,10 +55,11 @@ namespace Mapbox.MapDebug.Scripts.Logging
             
             var taskManager = new LoggingTaskManager();
             _mapLogger?.AddLogger(taskManager);
-            UnityContext.Initialize(taskManager);
+            yield return UnityContext.Initialize(taskManager);
             
             
             var mapboxContext = new MapboxContext();
+            yield return mapboxContext.Initialize();
             _mapService = GetMapService(mapboxContext, UnityContext);
             MapServiceReady(_mapService);
 
@@ -95,14 +96,6 @@ namespace Mapbox.MapDebug.Scripts.Logging
                 {
                     //_readyForUpdates = true;
                 });
-            }
-        }
-
-        private void Update()
-        {
-            if (InitializationStatus == InitializationStatus.ReadyForUpdates && _mapService.IsReady())
-            {
-                MapboxMap.MapUpdated();
             }
         }
         

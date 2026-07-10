@@ -24,7 +24,10 @@ namespace Mapbox.UnityMapService
 		private MapboxCacheManager _cacheManager;
 		private DataFetchingManager _fetchingManager;
 
-		public override IFileSource FileSource => _fetchingManager;
+		public override IFileSource FileSource => FetchingManager;
+
+		public MapboxCacheManager CacheManager => _cacheManager;
+		public DataFetchingManager FetchingManager => _fetchingManager;
 
 		public MapUnityService(
 			UnityContext unityContext,
@@ -63,20 +66,25 @@ namespace Mapbox.UnityMapService
 		public override Source<TerrainData> GetTerrainRasterSource(ImageSourceSettings settings)
 		{
 			
-			var terrainSource = new TerrainSource(_fetchingManager, _cacheManager, settings);
+			var terrainSource = new TerrainSource(FetchingManager, CacheManager, settings);
 			_dataSources.Add(terrainSource);
 			return terrainSource;
 		}
 
 		public override Source<RasterData> GetStaticRasterSource(ImageSourceSettings settings)
 		{
-			var staticRasterSource = new StaticSource(_fetchingManager, _cacheManager, settings);
+			var staticRasterSource = new StaticSource(FetchingManager, CacheManager, settings);
 			_dataSources.Add(staticRasterSource);
 			return staticRasterSource;
 		}
 
 		public override Source<VectorData> GetVectorSource(VectorSourceSettings settings)
 		{
+			if (_dataSources.Any(s => s is VectorSource))
+			{
+				return _dataSources.First(x => x is VectorSource) as Source<VectorData>;
+			}
+			
 			var vectorSource = new VectorSource(_fetchingManager, _cacheManager, settings);
 			_dataSources.Add(vectorSource);
 			return vectorSource;
@@ -84,19 +92,24 @@ namespace Mapbox.UnityMapService
 		
 		public override Source<BuildingData> GetBuildingSource(VectorSourceSettings settings)
 		{
-			var vectorSource = new BuildingSource(_fetchingManager, _cacheManager, settings);
+			var vectorSource = new BuildingSource(FetchingManager, CacheManager, settings);
 			_dataSources.Add(vectorSource);
 			return vectorSource;
 		}
 		
-		public MapboxCacheManager GetCacheManager() => _cacheManager;
-		public DataFetchingManager GetFetchingManager() => _fetchingManager;
+		public MapboxCacheManager GetCacheManager() => CacheManager;
+		public DataFetchingManager GetFetchingManager() => FetchingManager;
+
+		public override void ClearCachedData()
+		{
+			_cacheManager.ClearCachedData();
+		}
 
 		public override void OnDestroy()
 		{
 			base.OnDestroy();
-			_fetchingManager.OnDestroy();
-			_cacheManager.OnDestroy();
+			FetchingManager.OnDestroy();
+			CacheManager.OnDestroy();
 		}
 	}
 }

@@ -20,7 +20,7 @@ namespace Mapbox.Example.Scripts.Map
             if (_map != null && _map.Status >= InitializationStatus.ReadyForUpdates)
             {
                 var latlng = _map.MapInformation.ConvertPositionToLatLng(Transform.position);
-                _map.MapInformation.SetInformation(latlng);
+                _map.ChangeView(latlng);
             }
         }
     }

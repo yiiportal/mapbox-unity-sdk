@@ -2,6 +2,7 @@
 using Mapbox.BaseModule.Data.Vector2d;
 using Mapbox.BaseModule.Utilities;
 using Newtonsoft.Json;
+using UnityEngine.Scripting;
 
 namespace Mapbox.BaseModule.Data.Platform.TileJSON
 {
@@ -137,6 +138,7 @@ namespace Mapbox.BaseModule.Data.Platform.TileJSON
 		[JsonProperty("webpage")]
 		public string WebPage { get; set; }
 
-
+		[Preserve]
+		public TileJSONResponse() { }
 	}
 }

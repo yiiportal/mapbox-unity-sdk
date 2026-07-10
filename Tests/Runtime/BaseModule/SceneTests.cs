@@ -187,7 +187,7 @@ namespace Mapbox.BaseModuleTests.PlayModeTests
             {
                 mapCore.Initialized += map => { _map = map; };
                 mapCore.MapInformation.SetInformation(null, 8);
-                mapCore.Initialize();
+                yield return mapCore.Initialize();
             }
             else
             {

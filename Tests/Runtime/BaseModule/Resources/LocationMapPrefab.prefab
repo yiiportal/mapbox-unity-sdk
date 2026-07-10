@@ -318,8 +318,6 @@ GameObject:
   m_Component:
   - component: {fileID: 2191227333257808753}
   - component: {fileID: 2191227333257808752}
-  - component: {fileID: 2191227333257808767}
-  - component: {fileID: 2191227333257808754}
   m_Layer: 0
   m_Name: LocationModule
   m_TagString: Untagged
@@ -352,50 +350,18 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: b55f37f9a6f7e44f7bb35e6bc3863847, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _deviceLocationProviderUnity: {fileID: 2191227333257808767}
-  _deviceLocationProviderAndroid: {fileID: 0}
-  _editorLocationProvider: {fileID: 2191227333257808754}
-  _transformLocationProvider: {fileID: 0}
+  m_Name:
+  m_EditorClassIdentifier:
+  LocationProviderType: 1
+  _mapboxLocationProviderSettings: {fileID: 0}
+  _unityLocationProviderSettings:
+    DesiredAccuracyInMeters: 5
+    UpdateDistanceInMeters: 5
+    UpdateTimeInMilliSeconds: 1000
+    UserHeadingSmoothing: {fileID: 0}
+    DeviceOrientationSmoothing: {fileID: 0}
+  EditorLatitudeLongitude: 39.9149443,32.8435014
   _dontDestroyOnLoad: 0
---- !u!114 &2191227333257808767
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2191227333257808764}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0a38712e93231418a84665190b8473d0, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _desiredAccuracyInMeters: 5
-  _updateDistanceInMeters: 5
-  _updateTimeInMilliSeconds: 1000
-  _userHeadingSmoothing: {fileID: 0}
-  _deviceOrientationSmoothing: {fileID: 0}
-  _editorDebuggingOnly:
-    _mockUnityInputLocation: 0
-    _locationLogFile: {fileID: 0}
---- !u!114 &2191227333257808754
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2191227333257808764}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 60712efc3153a4819b0c79437175846d, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  _accuracy: 0
-  _autoFireEvent: 1
-  _updateInterval: 0
-  _sendEvent: 0
-  _latitudeLongitude: 39.9149443,32.8435014
 --- !u!1 &2191227333556155969
 GameObject:
   m_ObjectHideFlags: 0
