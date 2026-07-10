@@ -66,6 +66,11 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 			
 		}
 
+		public virtual IEnumerator ChangeTilesetId(string tilesetId)
+		{
+			yield break;
+		}
+
 		public abstract bool RetainTiles(HashSet<CanonicalTileId> retainedTiles);
 
 		public abstract bool CheckInstantData(CanonicalTileId tileIdCanonical);

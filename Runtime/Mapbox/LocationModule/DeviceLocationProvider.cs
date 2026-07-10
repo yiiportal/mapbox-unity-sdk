@@ -7,6 +7,7 @@ using Mapbox.LocationModule.AngleSmoothing;
 using Mapbox.LocationModule.UnityLocationWrappers;
 using Mapbox.Utils;
 using UnityEngine;
+using YiiPortal.Common;
 
 namespace Mapbox.LocationModule
 {
@@ -70,6 +71,48 @@ namespace Mapbox.LocationModule
 		public DebuggingInEditor _editorDebuggingOnly;
 
 
+		// Foreground power tiering (iOS_App_Review_Gaps.md "Foreground GPS and
+		// compass tiering"): scenes without live map-follow/AR don't need
+		// best-accuracy fixes or the compass. Coarse mode restarts the OS
+		// service with relaxed parameters and disables the compass; fine mode
+		// restores the serialized values. Authorization is untouched — only a
+		// running service is cycled, so the #133 authorization-observed start
+		// path in PollLocationRoutine stays the single owner of first start.
+		private const float CoarseDesiredAccuracyInMeters = 10.0f;
+		private const float CoarseUpdateDistanceInMeters = 25.0f;
+		private bool _coarsePowerMode;
+
+		private float ActiveDesiredAccuracyInMeters { get { return _coarsePowerMode ? CoarseDesiredAccuracyInMeters : _desiredAccuracyInMeters; } }
+		private float ActiveUpdateDistanceInMeters { get { return _coarsePowerMode ? CoarseUpdateDistanceInMeters : _updateDistanceInMeters; } }
+
+		public void SetCoarsePowerMode(bool coarse)
+		{
+			if (_coarsePowerMode == coarse)
+			{
+				return;
+			}
+			_coarsePowerMode = coarse;
+
+			// Not delivering fixes yet (authorization wait, denied, or still
+			// initializing) — PollLocationRoutine picks the active mode up when
+			// it reaches Start(); nothing to cycle now.
+			if (_locationService == null || !_currentLocation.IsLocationServiceEnabled)
+			{
+				return;
+			}
+
+			// Re-issuing Start() on an already-running service retunes its accuracy/
+			// distance parameters in place (Unity's documented behavior for calling
+			// Start() while LocationServiceStatus is Running) — no Stop() first.
+			// Stopping and restarting the platform session (the original approach)
+			// invalidates the current fix and forces a fresh acquisition, producing
+			// a real GPS gap on every Map<->other-scene tier flip; a bare Start()
+			// call updates the live session without that gap, and status stays
+			// Running throughout so no re-init/NotifyServiceStarted signal is needed.
+			_locationService.Start(ActiveDesiredAccuracyInMeters, ActiveUpdateDistanceInMeters);
+			Input.compass.enabled = !coarse;
+		}
+
 		private IMapboxLocationService _locationService;
 		private Coroutine _pollRoutine;
 		private double _lastLocationTimestamp;
@@ -115,7 +158,11 @@ namespace Mapbox.LocationModule
 			}
 #endif
 
-			Input.location.Start();
+			// Don't call Input.location.Start() here — PollLocationRoutine below calls
+			// _locationService.Start(_desiredAccuracyInMeters, _updateDistanceInMeters)
+			// at line ~182 with the configured accuracy/distance. The eager parameterless
+			// Start() in Awake triggers [CLLocationManager authorizationStatus] on the
+			// main thread, producing the iOS "method can cause UI unresponsiveness" warning.
 			_currentLocation.Provider = "unity";
 			_wait1sec = new WaitForSeconds(1f);
 			_waitUpdateTime = _updateTimeInMilliSeconds < 500 ? new WaitForSeconds(0.5f) : new WaitForSeconds((float)_updateTimeInMilliSeconds / 1000.0f);
@@ -140,6 +187,11 @@ namespace Mapbox.LocationModule
 		/// <returns>The location routine.</returns>
 		IEnumerator PollLocationRoutine()
 		{
+			// Defer all CLLocationManager calls out of the Awake frame so they don't
+			// fire synchronously on the iOS main thread before the run-loop is idle,
+			// which suppresses the "method can cause UI unresponsiveness" system warning.
+			yield return null;
+
 #if UNITY_EDITOR
 			while (!UnityEditor.EditorApplication.isRemoteConnected)
 			{
@@ -169,6 +221,34 @@ namespace Mapbox.LocationModule
 #endif
 
 
+#if UNITY_IOS && !UNITY_EDITOR
+			LocationAuthorizationBridge.Initialize();
+			int authorizationObservationRetries = 15;
+			while (!LocationAuthorizationBridge.HasObservedAuthorization && authorizationObservationRetries > 0)
+			{
+				authorizationObservationRetries--;
+				yield return _wait1sec;
+			}
+
+			if (!LocationAuthorizationBridge.HasObservedAuthorization)
+			{
+				Debug.LogWarning("DeviceLocationProvider: Timed out waiting for native authorization observation; skipping Unity location start.");
+				_currentLocation.IsLocationServiceEnabled = false;
+				SendLocation(_currentLocation);
+				yield break;
+			}
+#endif
+
+			// On iOS, isEnabledByUser can return false for a few seconds after
+			// launch while the OS confirms the existing authorization. Retry before
+			// giving up so a valid prior grant isn't treated as a denial.
+			int enabledRetries = 15;
+			while (!_locationService.isEnabledByUser && enabledRetries > 0)
+			{
+				enabledRetries--;
+				yield return _wait1sec;
+			}
+
 			if (!_locationService.isEnabledByUser)
 			{
 				Debug.LogError("DeviceLocationProvider: Location is not enabled by user!");
@@ -177,27 +257,68 @@ namespace Mapbox.LocationModule
 				yield break;
 			}
 
-
+			Debug.Log($"DeviceLocationProvider: isEnabledByUser=true, calling Start()");
 			_currentLocation.IsLocationServiceInitializing = true;
-			_locationService.Start(_desiredAccuracyInMeters, _updateDistanceInMeters);
-			Input.compass.enabled = true;
+			_locationService.Start(ActiveDesiredAccuracyInMeters, ActiveUpdateDistanceInMeters);
+			Input.compass.enabled = !_coarsePowerMode;
 
+			Debug.Log($"DeviceLocationProvider: Start() called, waiting for status != Initializing (current={_locationService.status})");
 			int maxWait = 20;
-			while (_locationService.status == LocationServiceStatus.Initializing && maxWait > 0)
+			// Wait for Unity's internal location service before reading lastData.
+			// The iOS authorization bridge only owns permission state; it can report
+			// authorized before Unity's GPS pipeline is ready.
+#if UNITY_IOS && !UNITY_EDITOR
+			var unityLocationStatus = Input.location.status;
+			while (unityLocationStatus != LocationServiceStatus.Running
+				&& unityLocationStatus != LocationServiceStatus.Failed
+				&& maxWait > 0)
+			{
+				yield return _wait1sec;
+				maxWait--;
+				unityLocationStatus = Input.location.status;
+			}
+#else
+			while ((_locationService.status == LocationServiceStatus.Initializing
+				|| Input.location.status == LocationServiceStatus.Initializing)
+				&& maxWait > 0)
 			{
 				yield return _wait1sec;
 				maxWait--;
 			}
+#endif
 
+#if UNITY_IOS && !UNITY_EDITOR
+			if (maxWait < 1 && unityLocationStatus != LocationServiceStatus.Running)
+#else
 			if (maxWait < 1)
+#endif
 			{
 				Debug.LogError("DeviceLocationProvider: " + "Timed out trying to initialize location services!");
 				_currentLocation.IsLocationServiceInitializing = false;
 				_currentLocation.IsLocationServiceEnabled = false;
+#if UNITY_IOS && !UNITY_EDITOR
+				LocationAuthorizationBridge.NotifyServiceStarted(false);
+#endif
 				SendLocation(_currentLocation);
 				yield break;
 			}
 
+#if UNITY_IOS && !UNITY_EDITOR
+			if (unityLocationStatus == LocationServiceStatus.Failed)
+			{
+				Debug.LogError("DeviceLocationProvider: " + "Failed to initialize location services!");
+				_currentLocation.IsLocationServiceInitializing = false;
+				_currentLocation.IsLocationServiceEnabled = false;
+				LocationAuthorizationBridge.NotifyServiceStarted(false);
+				SendLocation(_currentLocation);
+				yield break;
+			}
+
+			LocationAuthorizationBridge.NotifyServiceStarted(true);
+			Debug.Log($"DeviceLocationProvider: Initialized, status={_locationService.status}, unityStatus={unityLocationStatus}");
+#else
+			Debug.Log($"DeviceLocationProvider: Initialized, status={_locationService.status}");
+#endif
 			if (_locationService.status == LocationServiceStatus.Failed)
 			{
 				Debug.LogError("DeviceLocationProvider: " + "Failed to initialize location services!");

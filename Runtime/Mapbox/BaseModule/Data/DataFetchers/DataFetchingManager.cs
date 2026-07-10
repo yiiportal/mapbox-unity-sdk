@@ -46,6 +46,12 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 			Runnable.Run(UpdateTick());
 		}
 
+		public void SetRequestLimits(int concurrency, float delay)
+		{
+			_activeRequestLimit = concurrency;
+			_requestDelay = delay;
+		}
+
 		public virtual void EnqueueForFetching(FetchInfo info)
 		{
 			info.QueueTime = Time.time;

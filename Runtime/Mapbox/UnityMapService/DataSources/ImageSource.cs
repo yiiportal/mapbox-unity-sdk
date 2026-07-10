@@ -145,56 +145,102 @@ namespace Mapbox.UnityMapService.DataSources
         #region coroutines
         public override IEnumerator LoadTileCoroutine(CanonicalTileId requestedDataTileId, Action<T> callback = null)
         {
-            T resultData = null;
-            if (GetInstantData(requestedDataTileId, out resultData))
+            yield return FetchTileDataCoroutine(requestedDataTileId, checkMemoryCacheFirst: true, clearExistingCache: false, callback);
+        }
+
+        public override IEnumerator ChangeTilesetId(string tilesetId)
+        {
+            _settings.TilesetId = tilesetId;
+            _tilesetId = _settings.TilesetId;
+            yield return Initialize();
+            yield return ReloadTiles();
+        }
+
+        public IEnumerator ReloadTiles()
+        {
+            // Snapshot keys before starting coroutines: RefreshData mutates the
+            // cache while WaitForAll would otherwise lazily enumerate the live dictionaries.
+            var activeKeys = _memoryCache.GetActiveData.Keys.ToList();
+            var fallbackKeys = _memoryCache.GetFallbackData.Keys.ToList();
+
+            var coroutines = activeKeys.Select(key => RefreshData(key));
+            coroutines = coroutines.Concat(fallbackKeys.Select(key => RefreshData(key, data =>
             {
+                _memoryCache.MarkFallback(key);
+            })));
+
+            yield return coroutines.WaitForAll();
+            _memoryCache.ClearInactive();
+        }
+
+        private IEnumerator RefreshData(CanonicalTileId requestedDataTileId, Action<T> callback = null)
+        {
+            yield return FetchTileDataCoroutine(requestedDataTileId, checkMemoryCacheFirst: false, clearExistingCache: true, callback);
+        }
+
+        private IEnumerator FetchTileDataCoroutine(CanonicalTileId requestedDataTileId, bool checkMemoryCacheFirst, bool clearExistingCache, Action<T> callback = null)
+        {
+            T resultData = null;
+            if (checkMemoryCacheFirst && GetInstantData(requestedDataTileId, out resultData))
+            {
+                callback?.Invoke(resultData);
+                yield break;
             }
-            else if (_waitingList.ContainsKey(requestedDataTileId))
+
+            if (_waitingList.ContainsKey(requestedDataTileId))
             {
                 while(_waitingList.ContainsKey(requestedDataTileId))
                 {
                     yield return null;
                 }
                 GetInstantData(requestedDataTileId, out resultData);
+                callback?.Invoke(resultData);
+                yield break;
             }
-            else
-            {
-                _waitingList[requestedDataTileId] = null;
-                yield return GetImageCoroutine<T>(requestedDataTileId, _tilesetId, _settings.UseNonReadableTextures,
-                    (data) =>
-                    {
-                        resultData = data;
-                        _waitingList.Remove(requestedDataTileId);
-                        
-                        if (resultData != null)
-                        {
-                            data.CacheType = CacheType.FileCache;
-                            _memoryCache.Add(data);
-                            CheckExpiration(data);
-                        }
-                    });
 
-                if (resultData == null)
+            _waitingList[requestedDataTileId] = null;
+            yield return GetImageCoroutine<T>(requestedDataTileId, _tilesetId, _settings.UseNonReadableTextures,
+                (data) =>
                 {
-                    var dataTile = CreateTile(requestedDataTileId, _tilesetId);
-                    _waitingList[requestedDataTileId] = dataTile;
-                    var working = true;
-                    WebRequestData(dataTile, (fetchingResult) =>
+                    resultData = data;
+                    _waitingList.Remove(requestedDataTileId);
+
+                    if (resultData != null)
                     {
-                        _waitingList.Remove(requestedDataTileId);
-                        if (dataTile.CurrentTileState == TileState.Loaded)
+                        data.CacheType = CacheType.FileCache;
+                        if (clearExistingCache && _memoryCache.Exists(requestedDataTileId))
                         {
-                            resultData = TextureFromWebForCoroutine(dataTile);
+                            _memoryCache.Remove(requestedDataTileId);
                         }
-                        working = false;
-                    });
-                    while (working)
-                    {
-                        yield return null;
+                        _memoryCache.Add(data);
+                        CheckExpiration(data);
                     }
+                });
+
+            if (resultData == null)
+            {
+                var dataTile = CreateTile(requestedDataTileId, _tilesetId);
+                _waitingList[requestedDataTileId] = dataTile;
+                var working = true;
+                WebRequestData(dataTile, (fetchingResult) =>
+                {
+                    _waitingList.Remove(requestedDataTileId);
+                    if (dataTile.CurrentTileState == TileState.Loaded)
+                    {
+                        if (clearExistingCache && _memoryCache.Exists(requestedDataTileId))
+                        {
+                            _memoryCache.Remove(requestedDataTileId);
+                        }
+                        resultData = TextureFromWebForCoroutine(dataTile);
+                    }
+                    working = false;
+                });
+                while (working)
+                {
+                    yield return null;
                 }
             }
-            
+
             callback?.Invoke(resultData);
         }
         

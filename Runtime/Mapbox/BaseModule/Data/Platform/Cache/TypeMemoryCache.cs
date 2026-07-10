@@ -160,6 +160,20 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             }
         }
         
+        public IReadOnlyDictionary<CanonicalTileId, T> GetActiveData => _active;
+        public IReadOnlyDictionary<CanonicalTileId, T> GetFallbackData => _fallbackDatas;
+
+        public void ClearInactive()
+        {
+            foreach (var tileData in _inactiveList)
+            {
+                CacheItemDisposed(tileData.key);
+                tileData.value.Dispose();
+            }
+            _inactiveList.Clear();
+            _inactiveMap.Clear();
+        }
+
         public IEnumerable<T> GetAllDatas()
         {
             foreach (var data in _active)

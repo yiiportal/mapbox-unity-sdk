@@ -36,6 +36,10 @@
 		<data>
 		57dpykPx7PWCtxqGy02YKT0EJik=
 		</data>
+		<key>ios-arm64/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
+		</data>
 		<key>ios-arm64/Turf.framework/Turf</key>
 		<data>
 		TJWcgNzbbP+lxKIOpwyHk0pV++0=
@@ -99,6 +103,10 @@
 		<key>ios-arm64_x86_64-maccatalyst/Turf.framework/Versions/A/Resources/Info.plist</key>
 		<data>
 		iDushp3CuwoBoC8BJD2+cLTOmEI=
+		</data>
+		<key>ios-arm64_x86_64-maccatalyst/Turf.framework/Versions/A/Resources/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
 		</data>
 		<key>ios-arm64_x86_64-maccatalyst/Turf.framework/Versions/A/Turf</key>
 		<data>
@@ -168,6 +176,10 @@
 		<data>
 		57dpykPx7PWCtxqGy02YKT0EJik=
 		</data>
+		<key>ios-arm64_x86_64-simulator/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
+		</data>
 		<key>ios-arm64_x86_64-simulator/Turf.framework/Turf</key>
 		<data>
 		WdI2ed+4P0MuIImmQS01vSO0KWY=
@@ -191,6 +203,10 @@
 		<key>ios-arm64_x86_64-simulator/dSYMs/Turf.framework.dSYM/Contents/Resources/Relocations/x86_64/Turf.yml</key>
 		<data>
 		QF1OM6pDNLBdQHhqNMizFX+8ZSE=
+		</data>
+		<key>macos-arm64_x86_64/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
 		</data>
 		<key>macos-arm64_x86_64/Turf.framework/Versions/A/Headers/Turf-Swift.h</key>
 		<data>
@@ -292,6 +308,10 @@
 		<data>
 		57dpykPx7PWCtxqGy02YKT0EJik=
 		</data>
+		<key>tvos-arm64/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
+		</data>
 		<key>tvos-arm64/Turf.framework/Turf</key>
 		<data>
 		EadvcszPP3r2ZApQlkROjyIqOM8=
@@ -355,6 +375,10 @@
 		<key>tvos-arm64_x86_64-simulator/Turf.framework/Modules/module.modulemap</key>
 		<data>
 		57dpykPx7PWCtxqGy02YKT0EJik=
+		</data>
+		<key>tvos-arm64_x86_64-simulator/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
 		</data>
 		<key>tvos-arm64_x86_64-simulator/Turf.framework/Turf</key>
 		<data>
@@ -444,6 +468,10 @@
 		<data>
 		57dpykPx7PWCtxqGy02YKT0EJik=
 		</data>
+		<key>watchos-arm64_arm64_32_armv7k/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
+		</data>
 		<key>watchos-arm64_arm64_32_armv7k/Turf.framework/Turf</key>
 		<data>
 		jgevT6G8eWHy9T+UqCJpPrNF5HM=
@@ -532,6 +560,10 @@
 		<data>
 		57dpykPx7PWCtxqGy02YKT0EJik=
 		</data>
+		<key>watchos-arm64_i386_x86_64-simulator/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
+		</data>
 		<key>watchos-arm64_i386_x86_64-simulator/Turf.framework/Turf</key>
 		<data>
 		uGSemj24jS+6Pv1rp5vpseG3THk=
@@ -591,6 +623,10 @@
 		<key>xros-arm64/Turf.framework/Modules/module.modulemap</key>
 		<data>
 		57dpykPx7PWCtxqGy02YKT0EJik=
+		</data>
+		<key>xros-arm64/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
 		</data>
 		<key>xros-arm64/Turf.framework/Turf</key>
 		<data>
@@ -655,6 +691,10 @@
 		<key>xros-arm64_x86_64-simulator/Turf.framework/Modules/module.modulemap</key>
 		<data>
 		57dpykPx7PWCtxqGy02YKT0EJik=
+		</data>
+		<key>xros-arm64_x86_64-simulator/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<data>
+		Y6G0R+eg15onRdPp585/LzTvPAo=
 		</data>
 		<key>xros-arm64_x86_64-simulator/Turf.framework/Turf</key>
 		<data>
@@ -769,6 +809,17 @@
 			<key>hash2</key>
 			<data>
 			WI2Xt3bH3JGpaTNWZ2Vujth0ptU8/++Etnpdm6KlOS8=
+			</data>
+		</dict>
+		<key>ios-arm64/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
 			</data>
 		</dict>
 		<key>ios-arm64/Turf.framework/Turf</key>
@@ -967,6 +1018,17 @@
 			c11nC4EMcJKOXK7DVuo0YAb9RhDIBx3dyKIAnGlD9fc=
 			</data>
 		</dict>
+		<key>ios-arm64_x86_64-maccatalyst/Turf.framework/Versions/A/Resources/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
+			</data>
+		</dict>
 		<key>ios-arm64_x86_64-maccatalyst/Turf.framework/Versions/A/Turf</key>
 		<dict>
 			<key>hash</key>
@@ -1159,6 +1221,17 @@
 			WI2Xt3bH3JGpaTNWZ2Vujth0ptU8/++Etnpdm6KlOS8=
 			</data>
 		</dict>
+		<key>ios-arm64_x86_64-simulator/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
+			</data>
+		</dict>
 		<key>ios-arm64_x86_64-simulator/Turf.framework/Turf</key>
 		<dict>
 			<key>hash</key>
@@ -1234,6 +1307,17 @@
 		<dict>
 			<key>symlink</key>
 			<string>Versions/Current/Modules</string>
+		</dict>
+		<key>macos-arm64_x86_64/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
+			</data>
 		</dict>
 		<key>macos-arm64_x86_64/Turf.framework/Resources</key>
 		<dict>
@@ -1525,6 +1609,17 @@
 			WI2Xt3bH3JGpaTNWZ2Vujth0ptU8/++Etnpdm6KlOS8=
 			</data>
 		</dict>
+		<key>tvos-arm64/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
+			</data>
+		</dict>
 		<key>tvos-arm64/Turf.framework/Turf</key>
 		<dict>
 			<key>hash</key>
@@ -1699,6 +1794,17 @@
 			<key>hash2</key>
 			<data>
 			WI2Xt3bH3JGpaTNWZ2Vujth0ptU8/++Etnpdm6KlOS8=
+			</data>
+		</dict>
+		<key>tvos-arm64_x86_64-simulator/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
 			</data>
 		</dict>
 		<key>tvos-arm64_x86_64-simulator/Turf.framework/Turf</key>
@@ -1943,6 +2049,17 @@
 			WI2Xt3bH3JGpaTNWZ2Vujth0ptU8/++Etnpdm6KlOS8=
 			</data>
 		</dict>
+		<key>watchos-arm64_arm64_32_armv7k/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
+			</data>
+		</dict>
 		<key>watchos-arm64_arm64_32_armv7k/Turf.framework/Turf</key>
 		<dict>
 			<key>hash</key>
@@ -2185,6 +2302,17 @@
 			WI2Xt3bH3JGpaTNWZ2Vujth0ptU8/++Etnpdm6KlOS8=
 			</data>
 		</dict>
+		<key>watchos-arm64_i386_x86_64-simulator/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
+			</data>
+		</dict>
 		<key>watchos-arm64_i386_x86_64-simulator/Turf.framework/Turf</key>
 		<dict>
 			<key>hash</key>
@@ -2348,6 +2476,17 @@
 			<key>hash2</key>
 			<data>
 			WI2Xt3bH3JGpaTNWZ2Vujth0ptU8/++Etnpdm6KlOS8=
+			</data>
+		</dict>
+		<key>xros-arm64/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
 			</data>
 		</dict>
 		<key>xros-arm64/Turf.framework/Turf</key>
@@ -2524,6 +2663,17 @@
 			<key>hash2</key>
 			<data>
 			WI2Xt3bH3JGpaTNWZ2Vujth0ptU8/++Etnpdm6KlOS8=
+			</data>
+		</dict>
+		<key>xros-arm64_x86_64-simulator/Turf.framework/PrivacyInfo.xcprivacy</key>
+		<dict>
+			<key>hash</key>
+			<data>
+			Y6G0R+eg15onRdPp585/LzTvPAo=
+			</data>
+			<key>hash2</key>
+			<data>
+			kyR31W0j7OxeJKgCui3S4Xm6r+hwxUI0LFsjGbjQRKg=
 			</data>
 		</dict>
 		<key>xros-arm64_x86_64-simulator/Turf.framework/Turf</key>
