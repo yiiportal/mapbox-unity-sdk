@@ -2,7 +2,7 @@ using System;
 using Mapbox.BaseModule.Data.DataFetchers;
 using UnityEngine;
 
-namespace Mapbox.Example.Scripts.ModuleBehaviours
+namespace Mapbox.BaseModule.Unity.ModuleBehaviours
 {
     public class DataFetchingManagerBehaviour : MonoBehaviour
     {

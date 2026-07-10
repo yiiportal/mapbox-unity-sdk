@@ -92,7 +92,7 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 
 		public virtual void Cancel(CanonicalTileId tileId)
 		{
-			
+
 		}
 
 		public virtual void OnDestroy()

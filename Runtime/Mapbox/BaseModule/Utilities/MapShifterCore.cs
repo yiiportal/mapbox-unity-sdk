@@ -28,12 +28,17 @@ namespace Mapbox.BaseModule.Utilities
             if(float.IsNaN(viewCenterPosition.x) || float.IsNaN(viewCenterPosition.y) || float.IsInfinity(viewCenterPosition.x) || float.IsInfinity(viewCenterPosition.y))
                 return;
             
-            if (Mathf.Abs(viewCenterPosition.x) > _shiftRange.x || 
+            if (Mathf.Abs(viewCenterPosition.x) > _shiftRange.x ||
                 Mathf.Abs(viewCenterPosition.z) > _shiftRange.y)
             {
                 var centerLatLng = _mapInformation.ConvertPositionToLatLng(viewCenterPosition);
                 _mapInformation.SetLatitudeLongitude(centerLatLng);
-                _unityContext.RuntimeGenerationRoot.position -= viewCenterPosition;
+                // localPosition (not position) so the shift stays in MapRoot-local space
+                // and composes with any parent transform. Writing world-space here would
+                // anchor RuntimeGenerationRoot in world coordinates — Unity would
+                // back-compute a localPosition that counters the parent rotation, and
+                // vector content would visually stop rotating with the rest of the map.
+                _unityContext.RuntimeGenerationRoot.localPosition -= viewCenterPosition;
             }
         }
 

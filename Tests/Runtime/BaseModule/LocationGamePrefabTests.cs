@@ -65,7 +65,7 @@ namespace Mapbox.BaseModuleTests.PlayModeTests
 
             _mapCore.Initialized += OnMapCoreInitialized;
 
-            _mapCore.Initialize();
+            yield return _mapCore.Initialize();
         
             while(_mapCore.InitializationStatus < InitializationStatus.ReadyForUpdates) yield return null;
         

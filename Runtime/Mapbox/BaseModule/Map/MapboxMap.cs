@@ -55,15 +55,12 @@ namespace Mapbox.BaseModule.Map
             Initialized();
         }
 
-        /// <summary>
-        /// Map update method, which we currently use per-frame, to recalculate the tile cover and run map visualizer on it.
-        /// </summary>
-        public void MapUpdated()
+        public void ForceRedraw()
         {
             MapService.TileCover(MapInformation, TileCover);
             MapVisualizer.Load(TileCover);
         }
-
+        
         /// <summary>
         /// Provides a controlled method for jumping to specific locations on the map.
         /// Unlike standard frame-by-frame map updates, this method ensures precise 
@@ -134,7 +131,7 @@ namespace Mapbox.BaseModule.Map
             Status = InitializationStatus.LoadingView;
             Debug.Log($"MapboxMap: LoadMapView started. Target={targetLocation.Latitude:F5},{targetLocation.Longitude:F5}");
             LoadViewStarting();
-            MapInformation.SetInformation(targetLocation);
+            MapInformation.SetLatitudeLongitude(targetLocation);
             
             MapService.TileCover(MapInformation, TileCover);
             Debug.Log($"MapboxMap: TileCover size={TileCover.Tiles.Count}");
@@ -160,9 +157,10 @@ namespace Mapbox.BaseModule.Map
         /// <param name="zoom">Zoom level of the map</param>
         /// <param name="pitch">Pitch value of the camera</param>
         /// <param name="bearing">Bearing value of the camera</param>
-        public void ChangeView(LatitudeLongitude? latlng = null, float? zoom = null, float? pitch = null, float? bearing = null)
+        public void ChangeView(LatitudeLongitude? latlng = null, float? zoom = null, float? pitch = null, float? bearing = null, float? scale = null)
         {
-            MapInformation.SetInformation(latlng, zoom, pitch, bearing);
+            MapInformation.SetInformation(latlng, zoom, pitch, bearing, scale);
+            RedrawMap();
         }
         
         public void OnDestroy()
@@ -172,6 +170,17 @@ namespace Mapbox.BaseModule.Map
         }
 
         public void UpdateTileCover() => MapService.TileCover(MapInformation, TileCover);
+        
+        /// <summary>
+        /// Map redraw method, which we currently use on-demand, to recalculate the tile cover and run map visualizer on it.
+        /// </summary>
+        private void RedrawMap(IMapInformation mapInfo = null)
+        {
+            MapService.TileCover(mapInfo ?? MapInformation, TileCover);
+            MapVisualizer.Load(TileCover);
+        }
+        
+        
         
         /// <summary>
         /// All modules are initialized, you can get&use any object and/or register to events safely.

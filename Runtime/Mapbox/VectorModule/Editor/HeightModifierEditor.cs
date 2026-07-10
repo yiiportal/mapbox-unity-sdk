@@ -18,6 +18,11 @@ namespace Mapbox.VectorModule.Editor
 
         void OnEnable()
         {
+            if (targets[0] == null)
+            {
+                return;
+            }
+            
             // Cache the main SerializedProperties
             extrusionOptionsProp = serializedObject.FindProperty("ExtrusionOptions");
             extrusionTypeProp = extrusionOptionsProp.FindPropertyRelative("extrusionType");

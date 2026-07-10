@@ -15,8 +15,19 @@ namespace Mapbox.UnityMapService.DataSources
     {
         protected ImageSourceSettings _settings;
         private IElevationDataExtractionStrategy _elevationDataExtractionStrategy;
-        
-        public TerrainSource(DataFetchingManager dataFetchingManager, MapboxCacheManager mapboxCacheManager, ImageSourceSettings settings) 
+
+        /// <summary>
+        /// When <c>false</c>, the per-pixel terrain-RGB -> float[] decode pass is skipped
+        /// entirely — saves ~65K pixel decodes and a ~256KB float[] per tile. The raster
+        /// Texture is still populated, so shader-elevation rendering keeps working; only
+        /// CPU consumers (collider builder, QueryElevation APIs, CPU-elevation mode, vector
+        /// snap-to-terrain modifiers) are disabled. Defaults to <c>true</c> for back-compat;
+        /// the parent <see cref="TerrainLayerModule"/> overrides this at Initialize based on
+        /// its settings.
+        /// </summary>
+        public bool ExtractCpuElevationData { get; set; } = true;
+
+        public TerrainSource(DataFetchingManager dataFetchingManager, MapboxCacheManager mapboxCacheManager, ImageSourceSettings settings)
             : base(dataFetchingManager, mapboxCacheManager, settings)
         {
             _settings = settings;
@@ -26,7 +37,7 @@ namespace Mapbox.UnityMapService.DataSources
             }
             else
             {
-                _elevationDataExtractionStrategy = new SyncExtractElevationArray(); 
+                _elevationDataExtractionStrategy = new SyncExtractElevationArray();
             }
         }
         
@@ -112,7 +123,7 @@ namespace Mapbox.UnityMapService.DataSources
             {
                 terrainData = data;
             }));
-            if (terrainData != null)
+            if (terrainData != null && terrainData.Texture != null && ExtractCpuElevationData)
             {
                 yield return Runnable.Instance.StartCoroutine(ExtractElevationValues(terrainData));
             }
@@ -121,26 +132,39 @@ namespace Mapbox.UnityMapService.DataSources
         
         protected IEnumerator ExtractElevationValues(TerrainData data)
         {
+            // Use the TerrainData overload (sets MinElevation/MaxElevation as part of the
+            // decode). Previously this path used Action<float[]> + the 1-arg SetElevationValues,
+            // which left Min/Max at 0 — meaning RecomputeTerrainBounds never widened the
+            // shared TerrainInfo for any tile loaded through LoadTileCoroutine.
+            //
+            // Subscribe to BOTH ElevationValuesUpdated and the dispose multicast: the async
+            // GPU readback no-ops on disposed data and never raises ElevationValuesUpdated,
+            // so without the dispose hook the coroutine would yield forever and pin the
+            // TerrainData. Rapid pan + cache eviction during initial load is the trigger.
             var finished = false;
-            _elevationDataExtractionStrategy.ExtractHeightData(data.Texture, (elevationArray) =>
-            {
-                data.SetElevationValues(elevationArray);
-                finished = true;
-            });
+            Action onDone = () => finished = true;
+            data.ElevationValuesUpdated += onDone;
+            data.AddDisposeCallback(onDone);
+            _elevationDataExtractionStrategy.ExtractHeightData(data.Texture, data);
             while (!finished) yield return null;
+            data.ElevationValuesUpdated -= onDone;
+            data.RemoveDisposeCallback(onDone);
         }
         
         protected override void TextureReceivedFromFile(TerrainData cacheItem)
         {
             base.TextureReceivedFromFile(cacheItem);
-            _elevationDataExtractionStrategy.ExtractHeightData(cacheItem);
+            if (ExtractCpuElevationData)
+            {
+                _elevationDataExtractionStrategy.ExtractHeightData(cacheItem);
+            }
         }
 
         protected override TerrainData TextureReceivedFromWeb(RasterTile tile)
         {
             var cacheItem = base.TextureReceivedFromWeb(tile);
 
-            if (cacheItem != null)
+            if (cacheItem != null && ExtractCpuElevationData)
             {
                 _elevationDataExtractionStrategy.ExtractHeightData(cacheItem);
             }

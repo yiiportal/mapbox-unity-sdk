@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.IO;
 using Mapbox.BaseModule;
 using Mapbox.BaseModule.Telemetry;
@@ -19,7 +20,11 @@ namespace Mapbox.BaseModule.Map
 
         public MapboxContext()
         {
-            LoadConfiguration();
+        }
+
+        public IEnumerator Initialize()
+        {
+            yield return LoadConfigurationCoroutine();
         }
 
         public string GetAccessToken()
@@ -40,7 +45,7 @@ namespace Mapbox.BaseModule.Map
             return _mapboxToken.Status;
         }
         
-        private void LoadConfiguration()
+        private MapboxConfiguration LoadAndParseConfig()
         {
             TextAsset configurationTextAsset = Resources.Load<TextAsset>(Constants.Path.MAPBOX_RESOURCES_RELATIVE);
             if (null == configurationTextAsset)
@@ -60,6 +65,29 @@ namespace Mapbox.BaseModule.Map
                 Debug.LogWarning("MapboxContext: Access token is empty. Map tiles will not load.");
             }
             config.Initialize();
+            return config;
+        }
+
+        private void HandleTokenResponse(MapboxConfiguration config, MapboxToken response)
+        {
+            _mapboxToken = response;
+            Configuration = config;
+            if (_mapboxToken.Status != MapboxTokenStatus.TokenValid)
+            {
+                config.AccessToken = string.Empty;
+                Debug.LogError("Invalid Token");
+            }
+            else
+            {
+                ConfigureTelemetry();
+            }
+        }
+
+        private const float TokenValidationTimeoutSeconds = 10f;
+
+        public IEnumerator LoadConfigurationCoroutine(bool validateToken = true)
+        {
+            var config = LoadAndParseConfig();
 
             if (SkipTokenValidation)
             {
@@ -67,25 +95,48 @@ namespace Mapbox.BaseModule.Map
                 _mapboxToken = new MapboxToken { Status = MapboxTokenStatus.TokenValid };
                 Configuration = config;
                 ConfigureTelemetry();
-                return;
+                yield break;
             }
 
-            var tokenValidator = new MapboxTokenApi();
-            tokenValidator.Retrieve(config.GetMapsSkuToken, config.AccessToken, (response) =>
+            if (validateToken)
             {
-                _mapboxToken = response;
-                if (_mapboxToken.Status != MapboxTokenStatus.TokenValid)
+                var tokenValidator = new MapboxTokenApi();
+                var configLoaded = false;
+                var timedOut = false;
+                tokenValidator.Retrieve(config.GetMapsSkuToken, config.AccessToken, (response) =>
                 {
-                    config.AccessToken = string.Empty;
-                    Debug.LogError("Invalid Token");
-                }
-                else
-                {
-                    ConfigureTelemetry();
-                }
-            });
+                    // If the wait below already gave up and handed `config` off as
+                    // Configuration, applying a late-arriving response here would
+                    // silently mutate (e.g. blank the AccessToken on) an object
+                    // already in active use elsewhere.
+                    if (timedOut)
+                    {
+                        Debug.LogWarning("MapboxContext: Token validation response arrived after timeout; ignoring.");
+                        return;
+                    }
+                    HandleTokenResponse(config, response);
+                    configLoaded = true;
+                });
 
-            Configuration = config;
+                var elapsed = 0f;
+                while (!configLoaded)
+                {
+                    elapsed += Time.deltaTime;
+                    if (elapsed >= TokenValidationTimeoutSeconds)
+                    {
+                        Debug.LogError("Token validation timed out. Proceeding with unvalidated configuration.");
+                        timedOut = true;
+                        Configuration = config;
+                        break;
+                    }
+
+                    yield return null;
+                }
+            }
+            else
+            {
+                Configuration = config;
+            }
         }
 
         private void ConfigureTelemetry()

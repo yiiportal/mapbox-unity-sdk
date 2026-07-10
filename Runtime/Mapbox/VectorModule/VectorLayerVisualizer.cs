@@ -44,10 +44,18 @@ namespace Mapbox.VectorModule
             _layerRootObject = new GameObject(_vectorLayerName + " layer objects").transform;
             if (_unityContext != null)
             {
-                _layerRootObject.SetParent(_unityContext.RuntimeGenerationRoot);
+                // worldPositionStays: false so Unity doesn't counter-rotate localRotation
+                // when parenting under a rotated RuntimeGenerationRoot (e.g. MapRoot
+                // anchored to an AR rig). The layer root should compose with the parent
+                // chain, not pin to world space.
+                _layerRootObject.SetParent(_unityContext.RuntimeGenerationRoot, worldPositionStays: false);
             }
             _layerRootObject.transform.localPosition = Vector3.zero;
-            _layerRootObject.transform.position += _settings.Offset;
+            _layerRootObject.transform.localRotation = Quaternion.identity;
+            // localPosition (not position) so the offset stays in MapRoot-local space.
+            // Writing world-space here would clobber any parent transform on the map
+            // hierarchy (e.g. an AR anchor rotating / translating MapRoot).
+            _layerRootObject.transform.localPosition += _settings.Offset;
         }
 
         public virtual void UpdateForView(CanonicalTileId canonicalTileId, IMapInformation information)
@@ -57,10 +65,13 @@ namespace Mapbox.VectorModule
                 foreach (var entity in visuals)
                 {
                     _mapInformation.PositionObjectFor(canonicalTileId, out var position, out var scale);
+                    // Both operands in MapRoot-local space: `position` comes from
+                    // PositionObjectFor (Mercator-derived, map-local), and we read the
+                    // layer root's localPosition rather than its world-space position.
                     entity.GameObject.transform.localPosition = new Vector3(
-                        position.x - _layerRootObject.transform.position.x, 
-                        entity.GameObject.transform.localPosition.y, 
-                        position.z - _layerRootObject.transform.position.z);
+                        position.x - _layerRootObject.transform.localPosition.x,
+                        entity.GameObject.transform.localPosition.y,
+                        position.z - _layerRootObject.transform.localPosition.z);
                     
                     var stack = _stackList[entity.StackId];
                     if (stack.Settings.LayerType == LayerTypeEnum.Polygon || stack.Settings.LayerType == LayerTypeEnum.Line)
@@ -83,6 +94,10 @@ namespace Mapbox.VectorModule
                         {
                             var isVisible = stack.IsZinSupportedRange(_mapInformation.AbsoluteZoom);
                             entity.GameObject.SetActive(isVisible);
+                        }
+                        else
+                        {
+                            Debug.Log("All entities should have a stack id");
                         }
                     }
                 }
@@ -157,6 +172,25 @@ namespace Mapbox.VectorModule
                 modifierStack.UnregisterTile(tileId);
             }
         }
+
+        public virtual void ClearCaches()
+        {
+            foreach (var entities in _results.Values)
+            {
+                foreach (var entity in entities)
+                {
+                    OnVectorMeshDestroyed(entity.GameObject);
+                    GameObject.Destroy(entity.GameObject);
+                }
+            }
+
+            foreach (var stack in _stackList)
+            {
+                stack.Value.OnDestroy();
+            }
+
+            _results.Clear();
+        }
         
         public void OnDestroy()
         {
@@ -225,7 +259,7 @@ namespace Mapbox.VectorModule
                 foreach (var meshData in pair.Value)
                 {
                     var entity = _stackList[pair.Key].CreateEntity(meshData);
-                    entity.GameObject.transform.SetParent(_layerRootObject);
+                    entity.GameObject.transform.SetParent(_layerRootObject, worldPositionStays: false);
                     entity.StackId = pair.Key;
                     entity.Feature = meshData.Feature;
                     if(Application.isEditor) entity.GameObject.name = VectorLayerName + " " + canonicalTileId.ToString();

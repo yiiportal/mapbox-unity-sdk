@@ -11,6 +11,7 @@ namespace Mapbox.Examples
 	public class CharacterMovement : MonoBehaviour
 	{
 		public MapBehaviourCore MapBehaviour;
+		private MapboxMap _map;
 		private IMapInformation _mapInformation;
 		public Transform Target;
 		public Animator CharacterAnimator;
@@ -24,6 +25,7 @@ namespace Mapbox.Examples
 		{ 
 			MapBehaviour.Initialized += map =>
 			{
+				_map = map;
 				_mapInformation = map.MapInformation;
 				_scale = map.MapInformation.Scale;
 				_readyForUpdates = true;
@@ -42,6 +44,7 @@ namespace Mapbox.Examples
 				transform.LookAt(transform.position + direction);
 				transform.Translate(Vector3.forward * (Speed/_scale));
 				if(CharacterAnimator) CharacterAnimator.SetBool("IsWalking", true);
+				_map.ForceRedraw();
 			}
 			else
 			{

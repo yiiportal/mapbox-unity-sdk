@@ -85,7 +85,7 @@ namespace Mapbox.ImageModule
 		{
 			yield return _rasterSource.ChangeTilesetId(tilesetId);
 		}
-		
+
 		public virtual void OnDestroy()
 		{
 			_rasterSource.OnDestroy();

@@ -1,4 +1,5 @@
 using System;
+using Mapbox.BaseModule.Data.Platform;
 using UnityEngine.Networking;
 
 namespace Mapbox.BaseModule.Data.Platform.Cache
@@ -12,14 +13,18 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 
         public bool IsAborted = false;
 
+        // Set by Ready() when RawUri fails the http(s) guard; _request stays null in that
+        // case, so every accessor below falls back to a safe default instead of NRE'ing.
+        public bool HasInvalidUrl { get; private set; }
+
         public int TryCount { get; protected set; }
 
         public UnityWebRequest Core => _request;
-        public DownloadHandler downloadHandler => _request.downloadHandler;
-        public long responseCode => _request.responseCode;
-        public string error => _request.error;
-        public UnityWebRequest.Result result => _request.result;
-        public string Url => _request.url;
+        public DownloadHandler downloadHandler => _request?.downloadHandler;
+        public long responseCode => _request?.responseCode ?? 0;
+        public string error => _request != null ? _request.error : "Invalid or malformed URL";
+        public UnityWebRequest.Result result => _request?.result ?? UnityWebRequest.Result.ProtocolError;
+        public string Url => _request?.url ?? RawUri;
 
         private string EtagHeaderName = "ETag";
         private string CacheControlHeaderName = "Cache-Control";
@@ -40,7 +45,15 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
                 _request.Dispose();
                 _request = null;
             }
-			
+
+            // iOS_App_Review_Gaps.md #139 — guard against malformed or non-HTTP(S) URLs
+            HasInvalidUrl = !MapboxUrlValidator.IsValidHttpUrl(RawUri);
+            if (HasInvalidUrl)
+            {
+                UnityEngine.Debug.LogWarning($"[ResilientWebRequest] Skipped Ready — invalid or malformed URL: '{RawUri}'");
+                return this;
+            }
+
             _request = UnityWebRequest.Get(RawUri);
             _request.timeout = _timeout;
             if (!string.IsNullOrEmpty(_etag))
@@ -67,12 +80,12 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 
         public UnityWebRequestAsyncOperation SendWebRequest()
         {
-            return _request.SendWebRequest();
+            return _request?.SendWebRequest();
         }
 
         public string GetETag()
         {
-            string eTag = _request.GetResponseHeader(EtagHeaderName);
+            string eTag = _request?.GetResponseHeader(EtagHeaderName);
             if (string.IsNullOrEmpty(eTag))
             {
                 //Debug.LogWarning("no 'ETag' header present in response");
@@ -84,7 +97,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         public DateTime GetExpirationDate()
         {
             DateTime expirationDate = DateTime.Now;
-            var headerValue = _request.GetResponseHeader(CacheControlHeaderName);
+            var headerValue = _request?.GetResponseHeader(CacheControlHeaderName);
             if (!string.IsNullOrEmpty(headerValue))
             {
                 var cacheEntries = headerValue.Split(',');

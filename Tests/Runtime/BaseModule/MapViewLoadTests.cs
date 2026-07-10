@@ -48,8 +48,9 @@ namespace Mapbox.BaseModuleTests.DataTests
             mapInfo.SetInformation(null, 16, 45, null, 1000);
             mapInfo.Initialize();
             var mapboxContext = new MapboxContext();
+            yield return mapboxContext.LoadConfigurationCoroutine(false);
             var unityContext = new UnityContext();
-            unityContext.Initialize();
+            yield return unityContext.Initialize();
 
             var taskManager = new TaskManager();
             taskManager.Initialize();
@@ -102,7 +103,7 @@ namespace Mapbox.BaseModuleTests.DataTests
                 mapInfo, 
                 _vectorSource, 
                 unityContext, 
-                new Dictionary<string, IVectorLayerVisualizer>(), 
+                new Dictionary<string, List<IVectorLayerVisualizer>>(), 
                 new VectorModuleSettings() { DataSettings = vectorSourceSettings});
             mapVisualizer.LayerModules.Add(_imageLayer);
             mapVisualizer.LayerModules.Add(_terrainLayer);

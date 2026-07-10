@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Tasks;
 using Mapbox.BaseModule.Data.Tiles;
@@ -85,10 +86,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 			}
 		}
 
-		private string TileToRelativeFilePath(CanonicalTileId tileId, string tilesetId)
-		{
-			return string.Format("{0}/{1}{2}{3}.{4}", MapIdToFolderName(tilesetId), tileId.X, tileId.Y, tileId.Z, FileExtension);
-		}
+		
 		
 		public virtual bool Exists(CanonicalTileId tileId, string mapId)
 		{
@@ -311,27 +309,45 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 			}
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private string TileToRelativeFilePath(CanonicalTileId tileId, string tilesetId)
+		{
+			return string.Format("{0}/{1}_{2}_{3}.{4}", MapIdToFolderName(tilesetId), tileId.X, tileId.Y, tileId.Z, FileExtension);
+		}
+		
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private string TileToToFileInfoExpects(CanonicalTileId tileId, string tilesetId)
+		{
+			var relativePath = string.Format("{0}/{1}_{2}_{3}.{4}", MapIdToFolderName(tilesetId), tileId.X, tileId.Y, tileId.Z, FileExtension);
+			return Path.GetFullPath(Path.Combine(PersistantCacheRootFolderPath, relativePath)); 
+		}
+		
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		private string TileToRelativePath(MapboxTileData cacheItem)
 		{
 			return TileToRelativeFilePath(cacheItem.TileId, cacheItem.TilesetId);
 		}
 		
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public string TileToPathFileInfoExpects(MapboxTileData cacheItem)
 		{
 			return RelativeFilePathToFileInfoExpects(TileToRelativeFilePath(cacheItem.TileId, cacheItem.TilesetId));
 		}
 		
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public string TileToPathFileInfoExpects(CanonicalTileId tileId, string tilesetId)
 		{
 			return RelativeFilePathToFileInfoExpects(TileToRelativeFilePath(tileId, tilesetId));
 		}
 		
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public string RelativeFilePathToFileInfoExpects(string relativeFilePath)
 		{
 			var fullPath = Path.GetFullPath(Path.Combine(PersistantCacheRootFolderPath, relativeFilePath)); 
 			return fullPath;
 		}
 
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		public string RelativePathToUnityRequestExpects(string relativeFilePath)
 		{
 			var fullPath = Path.GetFullPath(Path.Combine(PersistantCacheRootFolderPath, relativeFilePath));
@@ -340,6 +356,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 			return fullPath.Insert(0, "file://");
 		}
 		
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
 		private string FullFilePathToRelativePath(string fileInfoFullName)
 		{
 			return fileInfoFullName.Substring(PersistantCacheRootFolderPath.Length,

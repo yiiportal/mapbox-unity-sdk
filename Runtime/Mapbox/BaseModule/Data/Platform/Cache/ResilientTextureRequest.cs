@@ -14,7 +14,10 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         public override ResilientWebRequest Ready()
         {
             base.Ready();
-            _request.downloadHandler = new DownloadHandlerTexture(!_isTextureNonreadable);
+            if (!HasInvalidUrl)
+            {
+                _request.downloadHandler = new DownloadHandlerTexture(!_isTextureNonreadable);
+            }
             return this;
         }
     }

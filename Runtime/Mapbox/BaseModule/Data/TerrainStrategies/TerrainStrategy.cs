@@ -22,5 +22,14 @@ namespace Mapbox.ImageModule.Terrain.TerrainStrategies
 		{
 
 		}
+
+		/// <summary>
+		/// Release any Unity objects (Meshes, textures) the strategy created. Called by
+		/// <c>TerrainLayerModule.OnDestroy</c>.
+		/// </summary>
+		public virtual void OnDestroy()
+		{
+
+		}
 	}
 }

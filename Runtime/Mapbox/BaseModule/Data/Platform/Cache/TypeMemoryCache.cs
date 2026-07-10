@@ -87,12 +87,14 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         {
             if (_active.TryGetValue(tileId, out var data))
             {
+                data.Dispose();
                 _active.Remove(tileId);
                 return;
             }
 
             if (_inactiveMap.TryGetValue(tileId, out var tuple))
             {
+                tuple.Value.value.Dispose();
                 _inactiveMap.Remove(tileId);
                 _inactiveList.Remove(tuple);
                 return;
@@ -100,6 +102,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 
             if (_fallbackDatas.TryGetValue(tileId, out var fallback))
             {
+                fallback.Dispose();
                 _fallbackDatas.Remove(tileId);
             }
         }
@@ -159,7 +162,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
                 _fallbackDatas.Add(dataTileId, tuple.Value.value);
             }
         }
-        
+
         public IReadOnlyDictionary<CanonicalTileId, T> GetActiveData => _active;
         public IReadOnlyDictionary<CanonicalTileId, T> GetFallbackData => _fallbackDatas;
 

@@ -1,4 +1,4 @@
-﻿//-----------------------------------------------------------------------
+//-----------------------------------------------------------------------
 // <copyright file="FileSource.cs" company="Mapbox">
 //     Copyright (c) 2016 Mapbox. All rights reserved.
 // </copyright>
@@ -64,6 +64,17 @@ namespace Mapbox.BaseModule.Data.Platform
             , int timeout = 10
         )
         {
+            // iOS_App_Review_Gaps.md #139 — guard against mapbox:// or other non-HTTP(S)
+            // scheme URLs (e.g. style URLs) reaching UnityWebRequest, which causes
+            // "Curl error 3: URL rejected" / NSURLConnection -1002 on iOS.
+            if (!MapboxUrlValidator.IsValidHttpUrl(url))
+            {
+                UnityEngine.Debug.LogWarning(
+                    $"[Mapbox.FileSource] Request skipped — non-HTTP(S) or malformed URL: '{url}'");
+                // Return a no-op request so callers that store the handle don't crash.
+                return null;
+            }
+
             if (!string.IsNullOrEmpty(_accessToken))
             {
                 var uriBuilder = new UriBuilder(url);

@@ -1,6 +1,6 @@
 using System;
 using Mapbox.BaseModule.Data.DataFetchers;
-using Mapbox.Example.Scripts.ModuleBehaviours;
+using Mapbox.BaseModule.Unity.ModuleBehaviours;
 using UnityEngine;
 
 namespace Mapbox.MapDebug.Scripts.Logging

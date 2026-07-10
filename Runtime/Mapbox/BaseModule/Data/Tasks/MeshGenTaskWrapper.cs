@@ -4,11 +4,11 @@ using System.Threading.Tasks;
 
 namespace Mapbox.BaseModule.Data.Tasks
 {
-    public class MeshGenTaskWrapper : TaskWrapper
+    public class MeshGenTaskWrapper<T> : TaskWrapper where T : MeshGenTaskWrapperResult, new()
     {
-        public MeshGenTaskWrapperResult DataResult;
-        public Func<MeshGenTaskWrapperResult> DataAction;
-        public Action<Task, MeshGenTaskWrapperResult> DataCompleted;
+        public T DataResult;
+        public Func<T> DataAction;
+        public Action<Task, T> DataCompleted;
 
         public override void Action()
         {
@@ -20,18 +20,19 @@ namespace Mapbox.BaseModule.Data.Tasks
             if (task != null && !task.IsFaulted)
             {
                 DataCompleted(Task.CompletedTask, DataResult);
+                IsCompleted = true;
                 return;
             }
-            
+
             if (task == null)
             {
-                DataResult ??= new MeshGenTaskWrapperResult();
+                DataResult ??= new T();
                 DataResult.ResultType = TaskResultType.Cancelled;
                 DataCompleted(null, DataResult);
             }
             else
             {
-                DataResult ??= new MeshGenTaskWrapperResult();
+                DataResult ??= new T();
                 DataResult.ResultType = TaskResultType.MeshGenerationFailure;
                 DataCompleted(task, DataResult);
             }

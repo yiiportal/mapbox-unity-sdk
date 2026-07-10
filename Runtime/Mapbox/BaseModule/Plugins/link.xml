@@ -1,4 +1,17 @@
 <linker>
+  <!--
+    SQLite-net reads and writes these model classes via reflection (PropertyInfo.GetValue/SetValue).
+    On IL2CPP with managed-code stripping, property accessors (get_id/set_id, etc.) can be stripped
+    because static analysis doesn't see them as called. That silently corrupts row mapping: SetValue
+    becomes a no-op, the property stays at default(T), and downstream FK constraints break.
+    Preserve the model types whole so every accessor sticks around.
+  -->
+  <assembly fullname="MapboxBaseModule">
+    <type fullname="Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache.tilesets" preserve="all"/>
+    <type fullname="Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache.tiles" preserve="all"/>
+    <type fullname="Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache.offlineMaps" preserve="all"/>
+    <type fullname="Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache.tile2offline" preserve="all"/>
+  </assembly>
   <assembly fullname="System">
     <type fullname="System.ComponentModel.TypeConverter" preserve="all"/>
     <type fullname="System.ComponentModel.ArrayConverter" preserve="all"/>

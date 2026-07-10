@@ -10,7 +10,6 @@ using Mapbox.BaseModule.Data.Vector2d;
 using Mapbox.BaseModule.Map;
 using Mapbox.BaseModule.Utilities;
 using Mapbox.DirectionsApi;
-using Mapbox.Example.Scripts.ModuleBehaviours;
 using UnityEngine;
 using UnityEngine.Serialization;
 using UnityEngine.UI;
