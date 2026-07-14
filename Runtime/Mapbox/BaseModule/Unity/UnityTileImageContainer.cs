@@ -30,11 +30,14 @@ namespace Mapbox.BaseModule.Unity
 
         public void SetImageData(RasterData imageData, TileContainerState state = TileContainerState.Final)
         {
-            if (ImageData != null)
+            if (ReferenceEquals(ImageData, imageData))
             {
-                ImageData.RemoveDisposeCallback(_onDispose);
+                State = state;
+                OnImageryUpdated();
+                return;
             }
 
+            ReleaseImageData();
             State = state;
             if (imageData.Texture == null || imageData.TileId.Z == 0)
             {
@@ -42,6 +45,7 @@ namespace Mapbox.BaseModule.Unity
             }
 
             ImageData = imageData;
+            ImageData.RetainVisualReference();
             ImageData.AddDisposeCallback(_onDispose);
             OnImageryUpdated();
         }
@@ -75,8 +79,7 @@ namespace Mapbox.BaseModule.Unity
             _unityMapTile.PropertyBlock.SetTexture(MainTex, Texture2D.blackTexture);
             _unityMapTile.ApplyPropertyBlock();
             var rd = ImageData;
-            ImageData.RemoveDisposeCallback(_onDispose);
-            ImageData = null;
+            ReleaseImageData();
             return rd;
         }
 
@@ -92,15 +95,20 @@ namespace Mapbox.BaseModule.Unity
 
         public void OnDestroy()
         {
-            // Symmetric detach to mirror UnityTileTerrainContainer's fix: the multicast
-            // _onDispose callback we added at SetImageData must be removed here, otherwise
-            // a future RasterData eviction fires the closure into a destroyed tile and
-            // cascades through OnDataDisposed → OnTileBroken → PoolTile on a dead tile.
-            if (ImageData != null)
+            ReleaseImageData();
+        }
+
+        private void ReleaseImageData()
+        {
+            if (ImageData == null)
             {
-                ImageData.RemoveDisposeCallback(_onDispose);
-                ImageData = null;
+                return;
             }
+
+            var imageData = ImageData;
+            ImageData = null;
+            imageData.RemoveDisposeCallback(_onDispose);
+            imageData.ReleaseVisualReference();
         }
     }
 }

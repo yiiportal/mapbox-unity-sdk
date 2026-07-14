@@ -61,6 +61,7 @@ namespace Mapbox.BaseModule.Unity
             {
                 TerrainData.ElevationValuesUpdated -= OnElevationValuesUpdated;
                 TerrainData.RemoveDisposeCallback(_onDisposeCallback);
+                TerrainData.ReleaseVisualReference();
             }
 
             if (terrainData == null)
@@ -71,6 +72,7 @@ namespace Mapbox.BaseModule.Unity
 
             State = state;
             TerrainData = terrainData;
+            TerrainData.RetainVisualReference();
             // Add (don't replace) — multiple render tiles share one TerrainData.
             TerrainData.AddDisposeCallback(_onDisposeCallback);
 
@@ -125,11 +127,12 @@ namespace Mapbox.BaseModule.Unity
                 return null;
 
             TerrainData.ElevationValuesUpdated -= OnElevationValuesUpdated;
-            TerrainData.RemoveDisposeCallback(_onDisposeCallback);
             _unityMapTile.PropertyBlock.SetTexture(HeightTexture, Texture2D.grayTexture);
             _unityMapTile.ApplyPropertyBlock();
             var rd = TerrainData;
             TerrainData = null;
+            rd.RemoveDisposeCallback(_onDisposeCallback);
+            rd.ReleaseVisualReference();
             return rd;
         }
         
@@ -203,7 +206,9 @@ namespace Mapbox.BaseModule.Unity
                 // eviction of shared TerrainData, that delegate would fire into a destroyed
                 // tile — exactly the class of bug the multicast change was meant to fix.
                 TerrainData.RemoveDisposeCallback(_onDisposeCallback);
+                var terrainData = TerrainData;
                 TerrainData = null;
+                terrainData.ReleaseVisualReference();
             }
         }
     }

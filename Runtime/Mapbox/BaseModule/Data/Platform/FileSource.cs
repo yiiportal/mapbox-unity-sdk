@@ -67,9 +67,7 @@ namespace Mapbox.BaseModule.Data.Platform
             // iOS_App_Review_Gaps.md #139 — guard against mapbox:// or other non-HTTP(S)
             // scheme URLs (e.g. style URLs) reaching UnityWebRequest, which causes
             // "Curl error 3: URL rejected" / NSURLConnection -1002 on iOS.
-            if (string.IsNullOrEmpty(url) ||
-                !Uri.TryCreate(url, UriKind.Absolute, out var parsedUri) ||
-                (parsedUri.Scheme != Uri.UriSchemeHttps && parsedUri.Scheme != Uri.UriSchemeHttp))
+            if (!MapboxUrlValidator.IsValidHttpUrl(url))
             {
                 UnityEngine.Debug.LogWarning(
                     $"[Mapbox.FileSource] Request skipped — non-HTTP(S) or malformed URL: '{url}'");

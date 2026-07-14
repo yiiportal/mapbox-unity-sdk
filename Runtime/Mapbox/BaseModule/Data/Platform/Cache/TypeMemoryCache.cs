@@ -49,6 +49,22 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         {
             if(Thread.CurrentThread.ManagedThreadId != mainThreadId)
                 Debug.Log("Trying to add data to memory cache from a worker thread. This shouldn't be happening.");
+            // FORK yiiportal: overwriting used to leak the replaced entry's Texture2D —
+            // a native object the GC cannot free (e.g. every expired-tile refresh).
+            // Dispose whatever this key currently holds before storing the new data.
+            if (_active.TryGetValue(data.TileId, out var existing))
+            {
+                if (!ReferenceEquals(existing, data))
+                {
+                    existing.Dispose();
+                }
+            }
+            else if (_inactiveMap.TryGetValue(data.TileId, out var node))
+            {
+                _inactiveList.Remove(node);
+                _inactiveMap.Remove(data.TileId);
+                node.Value.value.Dispose();
+            }
             _active[data.TileId] = data;
         }
         

@@ -7,6 +7,7 @@ using Mapbox.BaseModule.Data.Interfaces;
 using Mapbox.BaseModule.Data.Tiles;
 using Mapbox.BaseModule.Map;
 using Mapbox.BaseModule.Unity;
+using Mapbox.UnityMapService.DataSources;
 using UnityEngine;
 
 namespace Mapbox.ImageModule
@@ -84,6 +85,40 @@ namespace Mapbox.ImageModule
 		public IEnumerator ChangeTilesetId(string tilesetId)
 		{
 			yield return _rasterSource.ChangeTilesetId(tilesetId);
+		}
+
+		public bool HasPreparedTileset(string tilesetId)
+		{
+			return _rasterSource is ImageSource<RasterData> imageSource && imageSource.HasPreparedTileset(tilesetId);
+		}
+
+		public IEnumerator PrepareTileset(string tilesetId, IEnumerable<CanonicalTileId> tileIds)
+		{
+			if (_rasterSource is ImageSource<RasterData> imageSource)
+			{
+				yield return imageSource.PrepareTileset(tilesetId, tileIds);
+			}
+		}
+
+		public bool CommitPreparedTileset(string tilesetId)
+		{
+			return _rasterSource is ImageSource<RasterData> imageSource && imageSource.CommitPreparedTileset(tilesetId);
+		}
+
+		public void DiscardPreparedTileset()
+		{
+			if (_rasterSource is ImageSource<RasterData> imageSource)
+			{
+				imageSource.DiscardPreparedTileset();
+			}
+		}
+
+		public void ClearInactiveMemoryCache()
+		{
+			if (_rasterSource is ImageSource<RasterData> imageSource)
+			{
+				imageSource.ClearInactiveMemoryCache();
+			}
 		}
 
 		public virtual void OnDestroy()

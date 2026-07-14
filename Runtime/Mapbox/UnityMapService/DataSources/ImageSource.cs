@@ -15,15 +15,17 @@ namespace Mapbox.UnityMapService.DataSources
 {
     public abstract class ImageSource<T> : UnitySource<T> where T : RasterData, new()
     {
-        protected Dictionary<CanonicalTileId, RasterTile> _waitingList;
+        protected Dictionary<RasterRequestKey, RasterTile> _waitingList;
         protected TypeMemoryCache<T> _memoryCache;
         private HashSet<CanonicalTileId> _activeRequestsToCancel;
         private ImageSourceSettings _settings;
+        private List<T> _preparedTilesetData;
+        private string _preparedTilesetId;
 
         protected ImageSource(DataFetchingManager dataFetchingManager, MapboxCacheManager cacheManager, ImageSourceSettings settings) : base(dataFetchingManager, cacheManager, settings.TilesetId)
         {
             _settings = settings;
-            _waitingList = new Dictionary<CanonicalTileId, RasterTile>();
+            _waitingList = new Dictionary<RasterRequestKey, RasterTile>();
             _activeRequestsToCancel = new HashSet<CanonicalTileId>();
 
             _memoryCache = RegisterTypeToMemoryCache<T>(this.GetHashCode(), _settings.CacheSize);
@@ -40,17 +42,31 @@ namespace Mapbox.UnityMapService.DataSources
         
         public override bool CheckInstantData(CanonicalTileId tileId)
         {
-            return _memoryCache.Exists(tileId);
+            return GetInstantData(tileId, out _);
         }
-        
+
         public override bool GetInstantData(CanonicalTileId tileId, out T data)
         {
             var result = _memoryCache.Get(tileId, out data);
+            // FORK yiiportal: the memory cache is keyed by tile id only, so after a
+            // ChangeTilesetId (day/night style switch) it can still hold entries fetched
+            // for the previous style. Treat those as misses and evict so callers refetch
+            // with the current style instead of rendering stale imagery.
+            if (result && data != null && IsStaleStyle(data.TilesetId))
+            {
+                data = null;
+                return false;
+            }
             if (data != null)
             {
                 data.CacheType = CacheType.MemoryCache;
             }
             return result;
+        }
+
+        private bool IsStaleStyle(string dataTilesetId)
+        {
+            return !string.IsNullOrEmpty(dataTilesetId) && dataTilesetId != _tilesetId;
         }
 
         public override bool RetainTiles(HashSet<CanonicalTileId> retainedTiles)
@@ -66,9 +82,12 @@ namespace Mapbox.UnityMapService.DataSources
             _activeRequestsToCancel.Clear();
             foreach (var activeTile in _waitingList)
             {
-                if (!retainedTiles.Contains(activeTile.Key) && (activeTile.Value != null && !activeTile.Value.IsBackgroundData))
+                if (string.Equals(activeTile.Key.TilesetId, _tilesetId, StringComparison.Ordinal) &&
+                    !retainedTiles.Contains(activeTile.Key.TileId) &&
+                    activeTile.Value != null &&
+                    !activeTile.Value.IsBackgroundData)
                 {
-                    _activeRequestsToCancel.Add(activeTile.Key);
+                    _activeRequestsToCancel.Add(activeTile.Key.TileId);
                 }
             }
             
@@ -84,15 +103,19 @@ namespace Mapbox.UnityMapService.DataSources
         
         public override void CancelActiveRequests(CanonicalTileId unityTileId)
         {
-            if (_waitingList.ContainsKey(unityTileId))
+            CancelActiveRequests(new RasterRequestKey(unityTileId, _tilesetId));
+        }
+
+        private void CancelActiveRequests(RasterRequestKey requestKey)
+        {
+            if (_waitingList.TryGetValue(requestKey, out var tile))
             {
-                var tile = _waitingList[unityTileId];
                 if (tile != null)
                 {
-                    CancelFetching(tile, _tilesetId);
+                    CancelFetching(tile, requestKey.TilesetId);
                 }
 
-                _waitingList.Remove(unityTileId);
+                _waitingList.Remove(requestKey);
             }
         }
         
@@ -128,6 +151,11 @@ namespace Mapbox.UnityMapService.DataSources
             _memoryCache.OnDestroy();
         }
 
+        public virtual void ClearInactiveMemoryCache()
+        {
+            _memoryCache.ClearInactive();
+        }
+
         public IEnumerator ReloadTiles()
         {
             // IMPORTANT: Materialize keys BEFORE starting any coroutines to avoid
@@ -147,8 +175,101 @@ namespace Mapbox.UnityMapService.DataSources
             _memoryCache.ClearInactive();
         }
 
+        public bool HasPreparedTileset(string tilesetId)
+        {
+            return _preparedTilesetData != null &&
+                   _preparedTilesetData.Count > 0 &&
+                   string.Equals(_preparedTilesetId, tilesetId, StringComparison.Ordinal);
+        }
+
+        public IEnumerator PrepareTileset(string tilesetId, IEnumerable<CanonicalTileId> tileIds)
+        {
+            DiscardPreparedTileset();
+
+            var ids = new HashSet<CanonicalTileId>(tileIds);
+            if (ids.Count == 0 || string.IsNullOrEmpty(tilesetId))
+            {
+                yield break;
+            }
+
+            // Keep the visible tileset's requests alive while staging this one. UnitySource
+            // keys active requests by tile and tileset, so both covers can fetch in parallel
+            // until CommitPreparedTileset atomically replaces the visible imagery.
+            var preparedByTileId = new Dictionary<CanonicalTileId, T>(ids.Count);
+            var coroutines = ids.Select(tileId => PrepareTile(
+                tileId,
+                tilesetId,
+                data =>
+                {
+                    if (data != null)
+                    {
+                        preparedByTileId[tileId] = data;
+                    }
+                }));
+            yield return coroutines.WaitForAll();
+
+            if (preparedByTileId.Count != ids.Count)
+            {
+                foreach (var data in preparedByTileId.Values)
+                {
+                    data.Dispose();
+                }
+
+                yield break;
+            }
+
+            _preparedTilesetId = tilesetId;
+            _preparedTilesetData = preparedByTileId.Values.ToList();
+        }
+
+        public bool CommitPreparedTileset(string tilesetId)
+        {
+            if (!HasPreparedTileset(tilesetId))
+            {
+                return false;
+            }
+
+            _settings.TilesetId = tilesetId;
+            _tilesetId = tilesetId;
+
+            foreach (var data in _preparedTilesetData)
+            {
+                while (_memoryCache.Exists(data.TileId))
+                {
+                    _memoryCache.Remove(data.TileId);
+                }
+
+                _memoryCache.Add(data);
+                CheckExpiration(data);
+            }
+
+            _preparedTilesetData = null;
+            _preparedTilesetId = null;
+            return true;
+        }
+
+        public void DiscardPreparedTileset()
+        {
+            if (_preparedTilesetData != null)
+            {
+                foreach (var data in _preparedTilesetData)
+                {
+                    data.Dispose();
+                }
+            }
+
+            _preparedTilesetData = null;
+            _preparedTilesetId = null;
+        }
+
         public override IEnumerator ChangeTilesetId(string tilesetId)
         {
+            // FORK yiiportal: cancel fetches still in flight for the previous tileset id
+            // BEFORE switching (CancelFetching cancels under the id the fetch was keyed
+            // with). Without this, ReloadTiles' in-flight coalescing adopts old-style
+            // results and late responses repopulate the cache with stale imagery.
+            CancelOutstandingTileRequests();
+
             _settings.TilesetId = tilesetId;
             _tilesetId = _settings.TilesetId;
             yield return Initialize();
@@ -158,6 +279,7 @@ namespace Mapbox.UnityMapService.DataSources
         public override void OnDestroy()
         {
             base.OnDestroy();
+            DiscardPreparedTileset();
             foreach (var tile in _waitingList)
             {
                 tile.Value?.Cancel();
@@ -182,6 +304,8 @@ namespace Mapbox.UnityMapService.DataSources
             Action<T> callback = null)
         {
             T resultData = null;
+            string tilesetId = _tilesetId;
+            var requestKey = new RasterRequestKey(requestedDataTileId, tilesetId);
 
             // STEP 1: Check memory cache if requested (LoadTileCoroutine does this, RefreshData doesn't)
             if (checkMemoryCacheFirst && GetInstantData(requestedDataTileId, out resultData))
@@ -191,27 +315,43 @@ namespace Mapbox.UnityMapService.DataSources
             }
 
             // STEP 2: If already being fetched, wait for completion
-            if (_waitingList.ContainsKey(requestedDataTileId))
+            if (_waitingList.ContainsKey(requestKey))
             {
-                while(_waitingList.ContainsKey(requestedDataTileId))
+                while (_waitingList.ContainsKey(requestKey))
                 {
                     yield return null;
                 }
                 GetInstantData(requestedDataTileId, out resultData);
-                callback?.Invoke(resultData);
-                yield break;
+                // FORK yiiportal: only short-circuit when the coalesced fetch produced
+                // usable data; a fetch for a previous tileset id (cancelled or evicted
+                // as stale by GetInstantData) must fall through to a fresh fetch chain.
+                if (resultData != null)
+                {
+                    callback?.Invoke(resultData);
+                    yield break;
+                }
             }
 
             // STEP 3: Try file cache
-            _waitingList[requestedDataTileId] = null;
-            yield return GetImageCoroutine<T>(requestedDataTileId, _tilesetId, _settings.UseNonReadableTextures,
+            _waitingList[requestKey] = null;
+            yield return GetImageCoroutine<T>(requestedDataTileId, tilesetId, _settings.UseNonReadableTextures,
                 (data) =>
                 {
                     resultData = data;
-                    _waitingList.Remove(requestedDataTileId);
+                    _waitingList.Remove(requestKey);
 
                     if (resultData != null)
                     {
+                        // FORK yiiportal: a file-cache read started before a tileset
+                        // switch returns previous-style data; drop it and fall through
+                        // to the web fetch, which uses the current tileset id.
+                        if (IsStaleStyle(data.TilesetId))
+                        {
+                            data.Dispose();
+                            resultData = null;
+                            return;
+                        }
+
                         data.CacheType = CacheType.FileCache;
 
                         // Clear existing cache if requested (RefreshData does this)
@@ -226,13 +366,13 @@ namespace Mapbox.UnityMapService.DataSources
             // STEP 4: If not in file cache, fetch from web
             if (resultData == null)
             {
-                var dataTile = CreateTile(requestedDataTileId, _tilesetId);
-                _waitingList[requestedDataTileId] = dataTile;
+                var dataTile = CreateTile(requestedDataTileId, tilesetId);
+                _waitingList[requestKey] = dataTile;
                 var working = true;
 
                 WebRequestData(dataTile, (fetchingResult) =>
                 {
-                    _waitingList.Remove(requestedDataTileId);
+                    _waitingList.Remove(requestKey);
 
                     if (dataTile.CurrentTileState == TileState.Loaded)
                     {
@@ -251,9 +391,71 @@ namespace Mapbox.UnityMapService.DataSources
                 {
                     yield return null;
                 }
+
+                // Canceled is the expected outcome of CancelOutstandingTileRequests (style
+                // switch prepare/commit, ChangeTilesetId) — not a fetch failure, and warning
+                // on it here would drown the genuine-failure signal this exists to surface.
+                if (resultData == null && dataTile.CurrentTileState != TileState.Canceled)
+                {
+                    Debug.LogWarning($"[ImageSource] Coroutine fetch produced no data for {requestedDataTileId} ({tilesetId}) state={dataTile.CurrentTileState}");
+                }
             }
 
             callback?.Invoke(resultData);
+        }
+
+        private IEnumerator PrepareTile(CanonicalTileId tileId, string tilesetId, Action<T> callback)
+        {
+            T resultData = null;
+            yield return GetImageCoroutine<T>(tileId, tilesetId, _settings.UseNonReadableTextures, data =>
+            {
+                if (data != null && string.Equals(data.TilesetId, tilesetId, StringComparison.Ordinal))
+                {
+                    data.CacheType = CacheType.FileCache;
+                    resultData = data;
+                }
+                else
+                {
+                    data?.Dispose();
+                }
+            });
+
+            if (resultData == null)
+            {
+                var dataTile = CreateTile(tileId, tilesetId);
+                var isWorking = true;
+                WebRequestData(dataTile, result =>
+                {
+                    if (dataTile.CurrentTileState == TileState.Loaded && dataTile.Data != null)
+                    {
+                        dataTile.ExtractTextureFromRequest();
+                        resultData = CreateRasterDataWrapper(dataTile);
+                        SaveImage(resultData, true);
+                    }
+
+                    isWorking = false;
+                });
+
+                while (isWorking)
+                {
+                    yield return null;
+                }
+            }
+
+            callback?.Invoke(resultData);
+        }
+
+        private void CancelOutstandingTileRequests()
+        {
+            CancelAllActiveRequests();
+
+            var inFlightRequestKeys = new List<RasterRequestKey>(_waitingList.Keys);
+            foreach (var inFlightRequestKey in inFlightRequestKeys)
+            {
+                CancelActiveRequests(inFlightRequestKey);
+            }
+
+            _waitingList.Clear();
         }
 
         public override IEnumerator LoadTileCoroutine(CanonicalTileId requestedDataTileId, Action<T> callback = null)
@@ -301,29 +503,41 @@ namespace Mapbox.UnityMapService.DataSources
         
         private void LoadTileCore(CanonicalTileId requestedDataTileId, Action<T> callback = null)
         {
-            if (IsInProgress(requestedDataTileId))
+            string tilesetId = _tilesetId;
+            var requestKey = new RasterRequestKey(requestedDataTileId, tilesetId);
+            if (IsInProgress(requestKey))
             {
                 callback?.Invoke(null);
                 return;
             }
-            _waitingList[requestedDataTileId] = null;
+            _waitingList[requestKey] = null;
 
-            GetImageAsync<T>(requestedDataTileId, _tilesetId, _settings.UseNonReadableTextures, (cacheItem) =>
+            GetImageAsync<T>(requestedDataTileId, tilesetId, _settings.UseNonReadableTextures, (cacheItem) =>
             {
-                if (cacheItem != null)
+                bool isCurrentRequest = string.Equals(tilesetId, _tilesetId, StringComparison.Ordinal);
+                bool isCurrentStyleData = cacheItem != null &&
+                                          string.Equals(cacheItem.TilesetId, tilesetId, StringComparison.Ordinal);
+                if (isCurrentRequest && isCurrentStyleData)
                 {
                     TextureReceivedFromFile(cacheItem);
                     CheckExpiration(cacheItem);
-                    if (_waitingList.ContainsKey(requestedDataTileId))
-                        _waitingList.Remove(requestedDataTileId);
+                    if (_waitingList.ContainsKey(requestKey))
+                        _waitingList.Remove(requestKey);
                     callback?.Invoke(cacheItem);
                 }
                 else
                 {
-                    _waitingList.Remove(requestedDataTileId);
+                    cacheItem?.Dispose();
+                    _waitingList.Remove(requestKey);
+
+                    if (!isCurrentRequest)
+                    {
+                        callback?.Invoke(null);
+                        return;
+                    }
                     
-                    var dataTile = CreateTile(requestedDataTileId, _tilesetId);
-                    _waitingList[requestedDataTileId] = dataTile;
+                    var dataTile = CreateTile(requestedDataTileId, tilesetId);
+                    _waitingList[requestKey] = dataTile;
                     WebRequestData(dataTile, (fetchingResult) =>
                     {
                         T resultDataItem = null;
@@ -331,12 +545,14 @@ namespace Mapbox.UnityMapService.DataSources
                         {
                             resultDataItem = TextureReceivedFromWeb(dataTile);
                         }
-                        else
+                        else if (dataTile.CurrentTileState != TileState.Canceled)
                         {
-                            //?
+                            // Canceled is the expected outcome of a style switch's
+                            // CancelOutstandingTileRequests, not a fetch failure.
+                            Debug.LogWarning($"[ImageSource] Async fetch failed for {requestedDataTileId} ({tilesetId}) state={dataTile.CurrentTileState}");
                         }
-                        if (_waitingList.ContainsKey(requestedDataTileId))
-                            _waitingList.Remove(requestedDataTileId);
+                        if (_waitingList.ContainsKey(requestKey))
+                            _waitingList.Remove(requestKey);
                         callback?.Invoke(resultDataItem);
                     });
                 }
@@ -345,6 +561,13 @@ namespace Mapbox.UnityMapService.DataSources
         
         protected virtual void TextureReceivedFromFile(T textureCacheItem)
         {
+            // FORK yiiportal: never cache data fetched for a previous tileset id.
+            if (IsStaleStyle(textureCacheItem.TilesetId))
+            {
+                textureCacheItem.Dispose();
+                return;
+            }
+
             //var tile = (RasterTile) textureCacheItem.Tile;
             //textureCacheItem.Tile = tile;
             //tile.SetTextureFromCache(textureCacheItem.Texture2D);
@@ -358,6 +581,15 @@ namespace Mapbox.UnityMapService.DataSources
 
         protected virtual T TextureReceivedFromWeb(RasterTile tile)
         {
+            // FORK yiiportal: a web response that raced a tileset switch carries
+            // previous-style imagery; drop it instead of caching it under a tile id
+            // the new style will read.
+            if (IsStaleStyle(tile.TilesetId))
+            {
+                Debug.Log($"[ImageSource] Dropped late {tile.TilesetId} response for {tile.Id} after switch to {_tilesetId}");
+                return null;
+            }
+
             tile.AddLog(string.Format("{0} - {1}", Time.unscaledTime, " TextureReceivedHandler"));
             if (tile.Texture2D != null)
             {
@@ -389,6 +621,13 @@ namespace Mapbox.UnityMapService.DataSources
         //this should be the one to stay in the future
         private T TextureFromWebForCoroutine(RasterTile tile)
         {
+            // FORK yiiportal: see TextureReceivedFromWeb — drop previous-style responses.
+            if (IsStaleStyle(tile.TilesetId))
+            {
+                Debug.Log($"[ImageSource] Dropped late {tile.TilesetId} response for {tile.Id} after switch to {_tilesetId}");
+                return null;
+            }
+
             tile.AddLog(string.Format("{0} - {1}", Time.unscaledTime, " TextureReceivedHandler"));
             if (tile.Texture2D != null)
             {
@@ -495,9 +734,40 @@ namespace Mapbox.UnityMapService.DataSources
             }
         }
         
-        protected bool IsInProgress(CanonicalTileId requestedDataTileId)
+        protected bool IsInProgress(RasterRequestKey requestKey)
         {
-            return _waitingList.ContainsKey(requestedDataTileId) || IsActiveRequest(requestedDataTileId);
+            return _waitingList.ContainsKey(requestKey);
+        }
+
+        protected readonly struct RasterRequestKey : IEquatable<RasterRequestKey>
+        {
+            public CanonicalTileId TileId { get; }
+            public string TilesetId { get; }
+
+            public RasterRequestKey(CanonicalTileId tileId, string tilesetId)
+            {
+                TileId = tileId;
+                TilesetId = tilesetId;
+            }
+
+            public bool Equals(RasterRequestKey other)
+            {
+                return TileId.Equals(other.TileId) &&
+                       string.Equals(TilesetId, other.TilesetId, StringComparison.Ordinal);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is RasterRequestKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return (TileId.GetHashCode() * 397) ^ (TilesetId?.GetHashCode() ?? 0);
+                }
+            }
         }
     }
     

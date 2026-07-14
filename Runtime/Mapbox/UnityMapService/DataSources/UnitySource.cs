@@ -26,7 +26,7 @@ namespace Mapbox.UnityMapService.DataSources
         private readonly DataFetchingManager _dataFetchingManager;
         private readonly MapboxCacheManager _cacheManager;
         private IAsyncRequest _tileJsonRequest;
-        private Dictionary<CanonicalTileId, FetchInfo> _activeRequests;
+        private Dictionary<FetchRequestKey, FetchInfo> _activeRequests;
         private Dictionary<CanonicalTileId, List<TaskWrapper>> _activeTasks;
 
         protected UnitySource(DataFetchingManager dataFetchingManager, MapboxCacheManager cacheManager, string tilesetId)
@@ -35,7 +35,7 @@ namespace Mapbox.UnityMapService.DataSources
             _tilesetId = tilesetId;
             _dataFetchingManager = dataFetchingManager;
             _cacheManager = cacheManager;
-            _activeRequests = new Dictionary<CanonicalTileId, FetchInfo>();
+            _activeRequests = new Dictionary<FetchRequestKey, FetchInfo>();
             _sourceZoomRange = new[] {0, 22};
         }
         
@@ -71,16 +71,25 @@ namespace Mapbox.UnityMapService.DataSources
         
         private void RequestData(Tile tile, Action<DataFetchingResult> callback, bool isUpdate)
         {
-            if (_activeRequests.ContainsKey(tile.Id))
-                return;
-            
-            var fetchInfo = new FetchInfo(tile, (result) =>
+            var requestKey = new FetchRequestKey(tile.Id, tile.TilesetId);
+            if (_activeRequests.ContainsKey(requestKey))
             {
-                _activeRequests.Remove(tile.Id);
+                return;
+            }
+
+            FetchInfo fetchInfo = null;
+            fetchInfo = new FetchInfo(tile, (result) =>
+            {
+                if (_activeRequests.TryGetValue(requestKey, out var activeRequest) &&
+                    ReferenceEquals(activeRequest, fetchInfo))
+                {
+                    _activeRequests.Remove(requestKey);
+                }
+
                 callback(result);
             });
             fetchInfo.IsUpdate = isUpdate;
-            _activeRequests.Add(tile.Id, fetchInfo);
+            _activeRequests.Add(requestKey, fetchInfo);
             _dataFetchingManager.EnqueueForFetching(fetchInfo);
         }
 		
@@ -88,6 +97,12 @@ namespace Mapbox.UnityMapService.DataSources
         {
             tile.Cancel();
             _cacheManager.CancelFetching(tile.Id, tilesetId);
+            var requestKey = new FetchRequestKey(tile.Id, tilesetId);
+            if (_activeRequests.TryGetValue(requestKey, out var activeRequest) &&
+                ReferenceEquals(activeRequest.Tile, tile))
+            {
+                _activeRequests.Remove(requestKey);
+            }
             //we removed data fetching cancel here as data fetching now track
             //removal through the tile.Cancel
             //no further calls are necessary
@@ -100,6 +115,46 @@ namespace Mapbox.UnityMapService.DataSources
                     task.Cancel();
                 }
                 _activeTasks.Remove(tile.Id);
+            }
+        }
+
+        protected void CancelAllActiveRequests()
+        {
+            var activeRequests = new List<FetchInfo>(_activeRequests.Values);
+            foreach (var activeRequest in activeRequests)
+            {
+                CancelFetching(activeRequest.Tile, activeRequest.Tile.TilesetId);
+            }
+        }
+
+        private readonly struct FetchRequestKey : IEquatable<FetchRequestKey>
+        {
+            private readonly CanonicalTileId _tileId;
+            private readonly string _tilesetId;
+
+            public FetchRequestKey(CanonicalTileId tileId, string tilesetId)
+            {
+                _tileId = tileId;
+                _tilesetId = tilesetId;
+            }
+
+            public bool Equals(FetchRequestKey other)
+            {
+                return _tileId.Equals(other._tileId) &&
+                       string.Equals(_tilesetId, other._tilesetId, StringComparison.Ordinal);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is FetchRequestKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return (_tileId.GetHashCode() * 397) ^ (_tilesetId?.GetHashCode() ?? 0);
+                }
             }
         }
 

@@ -11,6 +11,10 @@ namespace Mapbox.BaseModule.Data.Interfaces
     {
         public void Load(TileCover tileCover);
         public void LoadSnapshot(TileCover tileCover);
+        public void ClearTileSnapshot();
+        public void RefreshActiveTileVisuals(TileCover tileCover);
+        public void ReconcileActiveTiles(TileCover tileCover);
+        public int CountMissingVisibleTiles(TileCover tileCover);
         IEnumerator Initialize();
         IEnumerator LoadTileCoverToMemory(TileCover tileCover);
         void OnDestroy();
