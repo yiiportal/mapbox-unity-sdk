@@ -48,7 +48,7 @@ namespace Mapbox.CustomImageryModule
             {
                 TilesetId = "CustomImagery"
             });
-            ModuleImplementation = new StaticApiLayerModule(source, Settings);
+            ModuleImplementation = new StaticApiLayerModule(source, Settings, mapInformation);
             return ModuleImplementation;
         }
     }

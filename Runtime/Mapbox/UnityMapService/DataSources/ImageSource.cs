@@ -7,9 +7,12 @@ using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Platform;
 using Mapbox.BaseModule.Data.Platform.Cache;
 using Mapbox.BaseModule.Data.Tiles;
+using Mapbox.BaseModule.Data.Vector2d;
 using Mapbox.BaseModule.Map;
 using Mapbox.BaseModule.Utilities;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
+using UnityEngine.Profiling;
 
 namespace Mapbox.UnityMapService.DataSources
 {
@@ -21,6 +24,59 @@ namespace Mapbox.UnityMapService.DataSources
         private ImageSourceSettings _settings;
         private List<T> _preparedTilesetData;
         private string _preparedTilesetId;
+        private readonly HashSet<CanonicalTileId> _retainedTileIds = new HashSet<CanonicalTileId>();
+        private readonly Dictionary<RasterRequestKey, int> _asyncRequestVersions =
+            new Dictionary<RasterRequestKey, int>();
+        private readonly List<PrioritizedTileId> _requestOrder = new List<PrioritizedTileId>();
+        private readonly HashSet<RasterTile> _preparedTileRequests = new HashSet<RasterTile>();
+        private int _nextAsyncRequestVersion;
+        private int _preparationVersion;
+        private LatitudeLongitude _requestPriorityCenter;
+        private bool _hasRequestPriorityCenter;
+
+        public int WaitingRequestCount => _waitingList.Count;
+        public int PreparedTileCount => _preparedTilesetData?.Count ?? 0;
+        public int ActiveCacheCount => _memoryCache.ActiveCount;
+        public int InactiveCacheCount => _memoryCache.InactiveCount;
+        public int FallbackCacheCount => _memoryCache.FallbackCount;
+        public long EstimatedResidentTextureBytes
+        {
+            get
+            {
+                long byteCount = 0;
+                foreach (var data in _memoryCache.GetAllDatas())
+                {
+                    if (data?.Texture != null)
+                    {
+                        byteCount += EstimateTextureBytes(data.Texture);
+                    }
+                }
+
+                if (_preparedTilesetData != null)
+                {
+                    foreach (var data in _preparedTilesetData)
+                    {
+                        if (data?.Texture != null)
+                        {
+                            byteCount += EstimateTextureBytes(data.Texture);
+                        }
+                    }
+                }
+
+                return byteCount;
+            }
+        }
+
+        private static long EstimateTextureBytes(Texture2D texture)
+        {
+            long profilerBytes = Profiler.GetRuntimeMemorySizeLong(texture);
+            uint pixelBytes = GraphicsFormatUtility.ComputeMipChainSize(
+                Math.Max(1, texture.width),
+                Math.Max(1, texture.height),
+                texture.graphicsFormat,
+                Math.Max(1, texture.mipmapCount));
+            return Math.Max(profilerBytes, pixelBytes);
+        }
 
         protected ImageSource(DataFetchingManager dataFetchingManager, MapboxCacheManager cacheManager, ImageSourceSettings settings) : base(dataFetchingManager, cacheManager, settings.TilesetId)
         {
@@ -71,14 +127,9 @@ namespace Mapbox.UnityMapService.DataSources
 
         public override bool RetainTiles(HashSet<CanonicalTileId> retainedTiles)
         {
-            foreach (var id in retainedTiles)
-            {
-                if (!CheckInstantData(id))
-                {
-                    LoadTile(id);
-                }
-            }
-            
+            _retainedTileIds.Clear();
+            _retainedTileIds.UnionWith(retainedTiles);
+
             _activeRequestsToCancel.Clear();
             foreach (var activeTile in _waitingList)
             {
@@ -96,9 +147,82 @@ namespace Mapbox.UnityMapService.DataSources
                 CancelActiveRequests(id);
             }
 
+            // Distance is computed once per tile rather than inside the comparer, which
+            // would re-run two LatitudeLongitudeToTileId conversions per comparison.
+            _requestOrder.Clear();
+            foreach (var id in retainedTiles)
+            {
+                _requestOrder.Add(new PrioritizedTileId(
+                    id,
+                    _hasRequestPriorityCenter ? GetNormalizedTileDistanceSquared(id) : 0d));
+            }
+
+            if (_hasRequestPriorityCenter)
+            {
+                _requestOrder.Sort(ComparePrioritizedTileId);
+            }
+
+            foreach (var entry in _requestOrder)
+            {
+                if (!CheckInstantData(entry.TileId))
+                {
+                    LoadTile(entry.TileId);
+                }
+            }
+
             _memoryCache.RetainTiles(retainedTiles);
 
             return true;
+        }
+
+        public void SetRequestPriorityCenter(LatitudeLongitude center)
+        {
+            _requestPriorityCenter = center;
+            _hasRequestPriorityCenter = true;
+            foreach (var request in _waitingList)
+            {
+                if (request.Value != null)
+                {
+                    SetWebRequestPriority(
+                        request.Key.TileId,
+                        request.Key.TilesetId,
+                        GetNormalizedTileDistanceSquared(request.Key.TileId));
+                }
+            }
+        }
+
+        private static int ComparePrioritizedTileId(PrioritizedTileId left, PrioritizedTileId right)
+        {
+            int distanceComparison = left.Distance.CompareTo(right.Distance);
+            return distanceComparison != 0
+                ? distanceComparison
+                : left.TileId.Z.CompareTo(right.TileId.Z);
+        }
+
+        private readonly struct PrioritizedTileId
+        {
+            public readonly CanonicalTileId TileId;
+            public readonly double Distance;
+
+            public PrioritizedTileId(CanonicalTileId tileId, double distance)
+            {
+                TileId = tileId;
+                Distance = distance;
+            }
+        }
+
+        private double GetNormalizedTileDistanceSquared(CanonicalTileId tileId)
+        {
+            var centerTile = Conversions.LatitudeLongitudeToTileId(
+                _requestPriorityCenter,
+                tileId.Z).Canonical;
+            int tileCount = 1 << tileId.Z;
+            int deltaX = Math.Abs(tileId.X - centerTile.X);
+            deltaX = Math.Min(deltaX, tileCount - deltaX);
+            int deltaY = Math.Abs(tileId.Y - centerTile.Y);
+            double normalizedX = (double)deltaX / tileCount;
+            double normalizedY = (double)deltaY / tileCount;
+            return normalizedX * normalizedX + normalizedY * normalizedY;
         }
         
         public override void CancelActiveRequests(CanonicalTileId unityTileId)
@@ -116,6 +240,7 @@ namespace Mapbox.UnityMapService.DataSources
                 }
 
                 _waitingList.Remove(requestKey);
+                _asyncRequestVersions.Remove(requestKey);
             }
         }
         
@@ -185,6 +310,7 @@ namespace Mapbox.UnityMapService.DataSources
         public IEnumerator PrepareTileset(string tilesetId, IEnumerable<CanonicalTileId> tileIds)
         {
             DiscardPreparedTileset();
+            int preparationVersion = _preparationVersion;
 
             var ids = new HashSet<CanonicalTileId>(tileIds);
             if (ids.Count == 0 || string.IsNullOrEmpty(tilesetId))
@@ -199,6 +325,7 @@ namespace Mapbox.UnityMapService.DataSources
             var coroutines = ids.Select(tileId => PrepareTile(
                 tileId,
                 tilesetId,
+                preparationVersion,
                 data =>
                 {
                     if (data != null)
@@ -208,7 +335,8 @@ namespace Mapbox.UnityMapService.DataSources
                 }));
             yield return coroutines.WaitForAll();
 
-            if (preparedByTileId.Count != ids.Count)
+            if (preparationVersion != _preparationVersion ||
+                preparedByTileId.Count != ids.Count)
             {
                 foreach (var data in preparedByTileId.Values)
                 {
@@ -229,6 +357,7 @@ namespace Mapbox.UnityMapService.DataSources
                 return false;
             }
 
+            CancelOutstandingTileRequests();
             _settings.TilesetId = tilesetId;
             _tilesetId = tilesetId;
 
@@ -250,6 +379,18 @@ namespace Mapbox.UnityMapService.DataSources
 
         public void DiscardPreparedTileset()
         {
+            unchecked
+            {
+                _preparationVersion++;
+            }
+
+            var preparingTiles = new List<RasterTile>(_preparedTileRequests);
+            foreach (var tile in preparingTiles)
+            {
+                tile.Cancel();
+            }
+            _preparedTileRequests.Clear();
+
             if (_preparedTilesetData != null)
             {
                 foreach (var data in _preparedTilesetData)
@@ -284,6 +425,8 @@ namespace Mapbox.UnityMapService.DataSources
             {
                 tile.Value?.Cancel();
             }
+            _asyncRequestVersions.Clear();
+            _retainedTileIds.Clear();
             _memoryCache.OnDestroy();
         }
 
@@ -385,7 +528,7 @@ namespace Mapbox.UnityMapService.DataSources
                     }
 
                     working = false;
-                });
+                }, GetRequestPriority(requestedDataTileId));
 
                 while (working)
                 {
@@ -404,12 +547,18 @@ namespace Mapbox.UnityMapService.DataSources
             callback?.Invoke(resultData);
         }
 
-        private IEnumerator PrepareTile(CanonicalTileId tileId, string tilesetId, Action<T> callback)
+        private IEnumerator PrepareTile(
+            CanonicalTileId tileId,
+            string tilesetId,
+            int preparationVersion,
+            Action<T> callback)
         {
             T resultData = null;
             yield return GetImageCoroutine<T>(tileId, tilesetId, _settings.UseNonReadableTextures, data =>
             {
-                if (data != null && string.Equals(data.TilesetId, tilesetId, StringComparison.Ordinal))
+                if (preparationVersion == _preparationVersion &&
+                    data != null &&
+                    string.Equals(data.TilesetId, tilesetId, StringComparison.Ordinal))
                 {
                     data.CacheType = CacheType.FileCache;
                     resultData = data;
@@ -420,13 +569,18 @@ namespace Mapbox.UnityMapService.DataSources
                 }
             });
 
-            if (resultData == null)
+            if (resultData == null &&
+                preparationVersion == _preparationVersion)
             {
                 var dataTile = CreateTile(tileId, tilesetId);
+                _preparedTileRequests.Add(dataTile);
                 var isWorking = true;
                 WebRequestData(dataTile, result =>
                 {
-                    if (dataTile.CurrentTileState == TileState.Loaded && dataTile.Data != null)
+                    _preparedTileRequests.Remove(dataTile);
+                    if (preparationVersion == _preparationVersion &&
+                        dataTile.CurrentTileState == TileState.Loaded &&
+                        dataTile.Data != null)
                     {
                         dataTile.ExtractTextureFromRequest();
                         resultData = CreateRasterDataWrapper(dataTile);
@@ -434,9 +588,10 @@ namespace Mapbox.UnityMapService.DataSources
                     }
 
                     isWorking = false;
-                });
+                }, GetRequestPriority(tileId));
 
-                while (isWorking)
+                while (isWorking &&
+                       preparationVersion == _preparationVersion)
                 {
                     yield return null;
                 }
@@ -456,6 +611,7 @@ namespace Mapbox.UnityMapService.DataSources
             }
 
             _waitingList.Clear();
+            _asyncRequestVersions.Clear();
         }
 
         public override IEnumerator LoadTileCoroutine(CanonicalTileId requestedDataTileId, Action<T> callback = null)
@@ -510,28 +666,31 @@ namespace Mapbox.UnityMapService.DataSources
                 callback?.Invoke(null);
                 return;
             }
+            int requestVersion = BeginAsyncRequest(requestKey);
             _waitingList[requestKey] = null;
 
             GetImageAsync<T>(requestedDataTileId, tilesetId, _settings.UseNonReadableTextures, (cacheItem) =>
             {
-                bool isCurrentRequest = string.Equals(tilesetId, _tilesetId, StringComparison.Ordinal);
+                bool isCurrentRequest =
+                    IsCurrentAsyncRequest(requestKey, requestVersion) &&
+                    _retainedTileIds.Contains(requestedDataTileId) &&
+                    string.Equals(tilesetId, _tilesetId, StringComparison.Ordinal);
                 bool isCurrentStyleData = cacheItem != null &&
                                           string.Equals(cacheItem.TilesetId, tilesetId, StringComparison.Ordinal);
                 if (isCurrentRequest && isCurrentStyleData)
                 {
                     TextureReceivedFromFile(cacheItem);
                     CheckExpiration(cacheItem);
-                    if (_waitingList.ContainsKey(requestKey))
-                        _waitingList.Remove(requestKey);
+                    CompleteAsyncRequest(requestKey, requestVersion);
                     callback?.Invoke(cacheItem);
                 }
                 else
                 {
                     cacheItem?.Dispose();
-                    _waitingList.Remove(requestKey);
 
                     if (!isCurrentRequest)
                     {
+                        CompleteAsyncRequest(requestKey, requestVersion);
                         callback?.Invoke(null);
                         return;
                     }
@@ -541,22 +700,65 @@ namespace Mapbox.UnityMapService.DataSources
                     WebRequestData(dataTile, (fetchingResult) =>
                     {
                         T resultDataItem = null;
-                        if (dataTile.CurrentTileState == TileState.Loaded)
+                        bool isCurrentWebRequest =
+                            IsCurrentAsyncRequest(requestKey, requestVersion) &&
+                            _retainedTileIds.Contains(requestedDataTileId) &&
+                            string.Equals(tilesetId, _tilesetId, StringComparison.Ordinal);
+                        if (isCurrentWebRequest &&
+                            dataTile.CurrentTileState == TileState.Loaded)
                         {
                             resultDataItem = TextureReceivedFromWeb(dataTile);
                         }
-                        else if (dataTile.CurrentTileState != TileState.Canceled)
+                        else if (dataTile.CurrentTileState == TileState.Loaded)
+                        {
+                            // The tile left the cover (or the style changed) while it was
+                            // downloading. Skipping the memory cache is the point, but the
+                            // bytes are already paid for — persist them so panning back
+                            // hits the file cache instead of refetching.
+                            PersistWithoutDecoding(dataTile);
+                        }
+                        else if (isCurrentWebRequest &&
+                                 dataTile.CurrentTileState != TileState.Canceled)
                         {
                             // Canceled is the expected outcome of a style switch's
                             // CancelOutstandingTileRequests, not a fetch failure.
                             Debug.LogWarning($"[ImageSource] Async fetch failed for {requestedDataTileId} ({tilesetId}) state={dataTile.CurrentTileState}");
                         }
-                        if (_waitingList.ContainsKey(requestKey))
-                            _waitingList.Remove(requestKey);
+                        CompleteAsyncRequest(requestKey, requestVersion);
                         callback?.Invoke(resultDataItem);
-                    });
+                    }, GetRequestPriority(requestedDataTileId));
                 }
             });
+        }
+
+        private double? GetRequestPriority(CanonicalTileId tileId)
+        {
+            return _hasRequestPriorityCenter
+                ? GetNormalizedTileDistanceSquared(tileId)
+                : null;
+        }
+
+        // File-cache write only: no ExtractTextureFromRequest, so this never allocates a
+        // Texture2D and never enters the memory cache. FileCache.SaveInfo persists
+        // RasterData.Data, so the texture field is deliberately left null.
+        private void PersistWithoutDecoding(RasterTile dataTile)
+        {
+            if (dataTile?.Data == null || dataTile.Data.Length == 0)
+            {
+                return;
+            }
+
+            SaveImage(
+                new RasterData
+                {
+                    TileId = dataTile.Id,
+                    TilesetId = dataTile.TilesetId,
+                    Data = dataTile.Data,
+                    ETag = dataTile.ETag,
+                    ExpirationDate = dataTile.ExpirationDate,
+                    CacheType = dataTile.FromCache
+                },
+                true);
         }
         
         protected virtual void TextureReceivedFromFile(T textureCacheItem)
@@ -737,6 +939,39 @@ namespace Mapbox.UnityMapService.DataSources
         protected bool IsInProgress(RasterRequestKey requestKey)
         {
             return _waitingList.ContainsKey(requestKey);
+        }
+
+        private int BeginAsyncRequest(RasterRequestKey requestKey)
+        {
+            unchecked
+            {
+                _nextAsyncRequestVersion++;
+            }
+
+            if (_nextAsyncRequestVersion == 0)
+            {
+                _nextAsyncRequestVersion = 1;
+            }
+
+            _asyncRequestVersions[requestKey] = _nextAsyncRequestVersion;
+            return _nextAsyncRequestVersion;
+        }
+
+        private bool IsCurrentAsyncRequest(RasterRequestKey requestKey, int requestVersion)
+        {
+            return _asyncRequestVersions.TryGetValue(requestKey, out int currentVersion) &&
+                   currentVersion == requestVersion;
+        }
+
+        private void CompleteAsyncRequest(RasterRequestKey requestKey, int requestVersion)
+        {
+            if (!IsCurrentAsyncRequest(requestKey, requestVersion))
+            {
+                return;
+            }
+
+            _asyncRequestVersions.Remove(requestKey);
+            _waitingList.Remove(requestKey);
         }
 
         protected readonly struct RasterRequestKey : IEquatable<RasterRequestKey>

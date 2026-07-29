@@ -5,6 +5,7 @@ using System.Linq;
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Interfaces;
 using Mapbox.BaseModule.Data.Tiles;
+using Mapbox.BaseModule.Data.Vector2d;
 using Mapbox.BaseModule.Map;
 using Mapbox.BaseModule.Unity;
 using Mapbox.UnityMapService.DataSources;
@@ -16,13 +17,31 @@ namespace Mapbox.ImageModule
 	{
 		protected StaticLayerModuleSettings _settings;
 		protected Source<RasterData> _rasterSource;
+		private readonly IMapInformation _mapInformation;
+		private Func<LatitudeLongitude?> _requestPriorityCenterResolver;
 		public Source<RasterData> RasterSource => _rasterSource;
+		public int ActiveRasterCount =>
+			(_rasterSource as ImageSource<RasterData>)?.ActiveCacheCount ?? 0;
+		public int InactiveRasterCount =>
+			(_rasterSource as ImageSource<RasterData>)?.InactiveCacheCount ?? 0;
+		public int FallbackRasterCount =>
+			(_rasterSource as ImageSource<RasterData>)?.FallbackCacheCount ?? 0;
+		public int PreparedRasterCount =>
+			(_rasterSource as ImageSource<RasterData>)?.PreparedTileCount ?? 0;
+		public int WaitingRasterCount =>
+			(_rasterSource as ImageSource<RasterData>)?.WaitingRequestCount ?? 0;
+		public long EstimatedResidentRasterBytes =>
+			(_rasterSource as ImageSource<RasterData>)?.EstimatedResidentTextureBytes ?? 0L;
 		private HashSet<CanonicalTileId> _retainedTiles;
 
-		public StaticApiLayerModule(Source<RasterData> source, StaticLayerModuleSettings settings) : base()
+		public StaticApiLayerModule(
+			Source<RasterData> source,
+			StaticLayerModuleSettings settings,
+			IMapInformation mapInformation = null) : base()
 		{
 			_settings = settings;
 			_rasterSource = source;
+			_mapInformation = mapInformation;
 		}
 
 		public virtual IEnumerator Initialize()
@@ -73,8 +92,28 @@ namespace Mapbox.ImageModule
 		public virtual bool RetainTiles(HashSet<CanonicalTileId> retainedTiles)
 		{
 			_retainedTiles = retainedTiles;
+			if (_rasterSource is ImageSource<RasterData> imageSource)
+			{
+				LatitudeLongitude? priorityCenter =
+					_requestPriorityCenterResolver?.Invoke();
+				if (!priorityCenter.HasValue && _mapInformation != null)
+				{
+					priorityCenter = _mapInformation.LatitudeLongitude;
+				}
+
+				if (priorityCenter.HasValue)
+				{
+					imageSource.SetRequestPriorityCenter(priorityCenter.Value);
+				}
+			}
 			var isReady = _rasterSource.RetainTiles(_retainedTiles);
 			return isReady;
+		}
+
+		public void SetRequestPriorityCenterResolver(
+			Func<LatitudeLongitude?> resolver)
+		{
+			_requestPriorityCenterResolver = resolver;
 		}
 
 		public void UpdatePositioning(IMapInformation mapInfo)

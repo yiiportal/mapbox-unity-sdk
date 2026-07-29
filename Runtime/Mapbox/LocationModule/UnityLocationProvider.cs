@@ -124,10 +124,24 @@ namespace Mapbox.LocationModule
         // first start.
         private const float CoarseDesiredAccuracyInMeters = 10.0f;
         private const float CoarseUpdateDistanceInMeters = 25.0f;
+
+        // Fine tier means a scene is rendering a live "you" position (Map/Portal), so every
+        // fix is delivered: a non-zero distance filter stops delivery entirely while the
+        // user stands still, which freezes the newest capture timestamp and ages out every
+        // consumer's freshness check even though an accurate position is on hand. That is
+        // what left the map on an approximate marker after a stationary return from another
+        // scene. The serialized UpdateDistanceInMeters is deliberately not consulted here;
+        // battery is saved in the coarse tier, which is every other scene.
+        private const float FineUpdateDistanceInMeters = 0f;
         private bool _coarsePowerMode;
+        private bool _hasAppliedSessionParameters;
+        private float _appliedDesiredAccuracyInMeters;
+        private float _appliedUpdateDistanceInMeters;
 
         private float ActiveDesiredAccuracyInMeters => _coarsePowerMode ? CoarseDesiredAccuracyInMeters : UnityLocationProviderSettings.DesiredAccuracyInMeters;
-        private float ActiveUpdateDistanceInMeters => _coarsePowerMode ? CoarseUpdateDistanceInMeters : UnityLocationProviderSettings.UpdateDistanceInMeters;
+        private float ActiveUpdateDistanceInMeters => _coarsePowerMode
+            ? CoarseUpdateDistanceInMeters
+            : FineUpdateDistanceInMeters;
 
         /// <summary>
         /// Starts (or retunes an already-running) location session at the
@@ -141,8 +155,31 @@ namespace Mapbox.LocationModule
         /// </summary>
         public void Start()
         {
-            _locationService.Start(ActiveDesiredAccuracyInMeters, ActiveUpdateDistanceInMeters);
+            _appliedDesiredAccuracyInMeters = ActiveDesiredAccuracyInMeters;
+            _appliedUpdateDistanceInMeters = ActiveUpdateDistanceInMeters;
+            _hasAppliedSessionParameters = true;
+            _locationService.Start(_appliedDesiredAccuracyInMeters, _appliedUpdateDistanceInMeters);
             Input.compass.enabled = !_coarsePowerMode;
+        }
+
+        /// <summary>
+        /// Reconciles the running session with the active tier. A flip requested while the
+        /// service was still starting records the mode but cannot retune anything (see
+        /// SetCoarsePowerMode's early return), and nothing would ever re-issue it: the next
+        /// flip to the same mode short-circuits, so the session would keep the previous
+        /// tier's distance filter — and therefore its delivery cadence — for the rest of
+        /// the run. Called from Update on every poll that finds the service usable.
+        /// </summary>
+        private void ApplyPendingSessionParameters()
+        {
+            if (_hasAppliedSessionParameters &&
+                Mathf.Approximately(_appliedDesiredAccuracyInMeters, ActiveDesiredAccuracyInMeters) &&
+                Mathf.Approximately(_appliedUpdateDistanceInMeters, ActiveUpdateDistanceInMeters))
+            {
+                return;
+            }
+
+            Start();
         }
 
         /// <summary>
@@ -223,6 +260,8 @@ namespace Mapbox.LocationModule
 
             if (!_currentLocation.IsLocationServiceEnabled)
                 return;
+
+            ApplyPendingSessionParameters();
 
             // device orientation, user heading get calculated below
             UnityLocationProviderSettings.DeviceOrientationSmoothing.Add(Input.compass.trueHeading);

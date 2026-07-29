@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Linq;
 using Mapbox.BaseModule;
+using Mapbox.BaseModule.Data.Vector2d;
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Platform.Cache;
 using Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache;
@@ -58,13 +59,13 @@ namespace Mapbox.Example.Scripts.Map
             {
                 if (LocationFactory != null)
                 {
-                    yield return LocationFactory.Initialize();
+                    if (ShouldInitializeLocationProvider)
+                    {
+                        yield return LocationFactory.Initialize();
+                    }
                     var locationProvider = LocationFactory.DefaultLocationProvider;
-                    var latLng = locationProvider.CurrentLocation.LatitudeLongitude;
-                    // An unavailable provider (service start timeout, no first
-                    // fix) still reports the struct default (0,0) — don't stomp
-                    // the map's configured or fallback center with Null Island.
-                    if (Math.Abs(latLng.Latitude) > 0.01 || Math.Abs(latLng.Longitude) > 0.01)
+                    if (locationProvider != null &&
+                        TryGetProviderInitialLocation(locationProvider, out var latLng))
                     {
                         MapInformation.SetLatitudeLongitude(latLng);
                     }
@@ -94,6 +95,17 @@ namespace Mapbox.Example.Scripts.Map
             MapboxMap = CreateMapObject();
             MapboxMap.Initialized += InitializationCompleted;
             yield return MapboxMap.Initialize();
+        }
+
+        protected virtual bool ShouldInitializeLocationProvider => true;
+
+        protected virtual bool TryGetProviderInitialLocation(
+            ILocationProvider locationProvider,
+            out LatitudeLongitude latitudeLongitude)
+        {
+            latitudeLongitude = locationProvider.CurrentLocation.LatitudeLongitude;
+            return Math.Abs(latitudeLongitude.Latitude) > 0.01 ||
+                   Math.Abs(latitudeLongitude.Longitude) > 0.01;
         }
         
 

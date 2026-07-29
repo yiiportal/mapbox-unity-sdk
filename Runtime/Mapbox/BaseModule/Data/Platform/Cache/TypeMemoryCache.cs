@@ -233,6 +233,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         
         public int ActiveCount => _active.Count;
         public int InactiveCount => _inactiveMap.Count;
+        public int FallbackCount => _fallbackDatas.Count;
     }
     
     public interface ITypeCache

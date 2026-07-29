@@ -66,14 +66,30 @@ namespace Mapbox.UnityMapService.DataSources
             }
         }
 
-        protected void WebRequestData(Tile tile, Action<DataFetchingResult> callback) => RequestData(tile, callback, false);
-        protected void WebRequestUpdate(Tile tile, Action<DataFetchingResult> callback) => RequestData(tile, callback, true);
+        protected void WebRequestData(
+            Tile tile,
+            Action<DataFetchingResult> callback,
+            double? priority = null) =>
+            RequestData(tile, callback, false, priority);
+        protected void WebRequestUpdate(Tile tile, Action<DataFetchingResult> callback) =>
+            RequestData(tile, callback, true, null);
         
-        private void RequestData(Tile tile, Action<DataFetchingResult> callback, bool isUpdate)
+        private void RequestData(
+            Tile tile,
+            Action<DataFetchingResult> callback,
+            bool isUpdate,
+            double? priority)
         {
             var requestKey = new FetchRequestKey(tile.Id, tile.TilesetId);
-            if (_activeRequests.ContainsKey(requestKey))
+            if (_activeRequests.TryGetValue(requestKey, out var existingRequest))
             {
+                if (priority.HasValue)
+                {
+                    _dataFetchingManager.SetRequestPriority(
+                        existingRequest,
+                        priority.Value);
+                }
+
                 return;
             }
 
@@ -89,8 +105,26 @@ namespace Mapbox.UnityMapService.DataSources
                 callback(result);
             });
             fetchInfo.IsUpdate = isUpdate;
+            if (priority.HasValue)
+            {
+                _dataFetchingManager.SetRequestPriority(
+                    fetchInfo,
+                    priority.Value);
+            }
             _activeRequests.Add(requestKey, fetchInfo);
             _dataFetchingManager.EnqueueForFetching(fetchInfo);
+        }
+
+        protected void SetWebRequestPriority(
+            CanonicalTileId tileId,
+            string tilesetId,
+            double priority)
+        {
+            var requestKey = new FetchRequestKey(tileId, tilesetId);
+            if (_activeRequests.TryGetValue(requestKey, out var request))
+            {
+                _dataFetchingManager.SetRequestPriority(request, priority);
+            }
         }
 		
         protected void CancelFetching(Tile tile, string tilesetId)

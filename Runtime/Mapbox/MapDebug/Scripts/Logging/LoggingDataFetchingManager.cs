@@ -12,7 +12,7 @@ namespace Mapbox.MapDebug.Scripts.Logging
     public class LoggingDataFetchingManager : DataFetchingManager, ILogWriter
     {
         public LoggingResilientWebRequestFileSource FileSource => _fileSource as LoggingResilientWebRequestFileSource;
-        public Queue<FetchInfo> GetFetchingQueue() => _fetchQueue;
+        public List<FetchInfo> GetFetchingQueue() => _fetchQueue.Snapshot();
         public int FetchQueueCount => _fetchQueue.Count;
         public int ActiveFetchCount => _globalActiveRequests.Count;
         public int AddedCount;
