@@ -32,8 +32,50 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             }
 
             var texture = DownloadHandlerTexture.GetContent(_request);
+            texture = RemoveMipChain(texture);
             _textureOwnershipTransferred = texture != null;
             return texture;
+        }
+
+        private Texture2D RemoveMipChain(Texture2D texture)
+        {
+            if (Application.platform != RuntimePlatform.IPhonePlayer ||
+                !_isTextureNonreadable ||
+                texture == null ||
+                texture.mipmapCount <= 1)
+            {
+                return texture;
+            }
+
+            Texture2D replacement = null;
+            try
+            {
+                replacement = new Texture2D(
+                    texture.width,
+                    texture.height,
+                    texture.format,
+                    mipChain: false,
+                    linear: !texture.isDataSRGB)
+                {
+                    name = texture.name,
+                    filterMode = texture.filterMode,
+                    wrapMode = texture.wrapMode,
+                    anisoLevel = texture.anisoLevel
+                };
+                replacement.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+                Graphics.CopyTexture(texture, 0, 0, replacement, 0, 0);
+                Object.Destroy(texture);
+                return replacement;
+            }
+            catch (System.Exception exception)
+            {
+                if (replacement != null)
+                {
+                    Object.Destroy(replacement);
+                }
+                Debug.LogWarning($"[ResilientTextureRequest] Could not remove texture mip chain: {exception.Message}");
+                return texture;
+            }
         }
 
         protected override void ReleaseRequest()

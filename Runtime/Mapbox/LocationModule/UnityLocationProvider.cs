@@ -115,15 +115,14 @@ namespace Mapbox.LocationModule
         }
 
         // Foreground power tiering (iOS_App_Review_Gaps.md "Foreground GPS and
-        // compass tiering"): scenes without live map-follow/AR don't need
-        // best-accuracy fixes or the compass. Coarse mode restarts the OS
-        // service with relaxed parameters and disables the compass; fine mode
-        // restores the serialized values. Authorization is untouched — only a
+        // location tiering"): scenes without live map-follow/AR don't need
+        // best-accuracy fixes. Coarse mode restarts the OS service with relaxed
+        // parameters. Authorization is untouched — only a
         // running service is cycled, so the #133 authorization-observed start
         // path in LocationProviderFactory.Initialize stays the single owner of
         // first start.
         private const float CoarseDesiredAccuracyInMeters = 10.0f;
-        private const float CoarseUpdateDistanceInMeters = 25.0f;
+        private const float CoarseUpdateDistanceInMeters = 5.0f;
 
         // Fine tier means a scene is rendering a live "you" position (Map/Portal), so every
         // fix is delivered: a non-zero distance filter stops delivery entirely while the
@@ -134,6 +133,7 @@ namespace Mapbox.LocationModule
         // battery is saved in the coarse tier, which is every other scene.
         private const float FineUpdateDistanceInMeters = 0f;
         private bool _coarsePowerMode;
+        private bool _compassEnabled;
         private bool _hasAppliedSessionParameters;
         private float _appliedDesiredAccuracyInMeters;
         private float _appliedUpdateDistanceInMeters;
@@ -159,7 +159,7 @@ namespace Mapbox.LocationModule
             _appliedUpdateDistanceInMeters = ActiveUpdateDistanceInMeters;
             _hasAppliedSessionParameters = true;
             _locationService.Start(_appliedDesiredAccuracyInMeters, _appliedUpdateDistanceInMeters);
-            Input.compass.enabled = !_coarsePowerMode;
+            Input.compass.enabled = _compassEnabled;
         }
 
         /// <summary>
@@ -224,6 +224,12 @@ namespace Mapbox.LocationModule
             // session without that gap, and status stays Running throughout so no
             // re-init/NotifyServiceStarted signal is needed.
             Start();
+        }
+
+        public void SetCompassEnabled(bool enabled)
+        {
+            _compassEnabled = enabled;
+            Input.compass.enabled = enabled;
         }
 
         public override void Update()

@@ -72,22 +72,7 @@ MonoBehaviour:
       - rid: 5375122628619272193
       - rid: 5375122628619272194
     m_RuntimeSettings:
-      m_List:
-      - rid: 3868682832626581775
-      - rid: 3868682832626581777
-      - rid: 3868682832626581778
-      - rid: 3868682832626581779
-      - rid: 3868682832626581784
-      - rid: 3868682832626581789
-      - rid: 3868682832626581793
-      - rid: 3868682832626581796
-      - rid: 3868682832626581797
-      - rid: 3868682832626581798
-      - rid: 3868682832626581801
-      - rid: 4696725957655658622
-      - rid: 5375122628619272192
-      - rid: 5375122628619272193
-      - rid: 5375122628619272194
+      m_List: []
   m_AssetVersion: 11
   m_ObsoleteDefaultVolumeProfile: {fileID: 0}
   m_RenderingLayerNames:
@@ -288,6 +273,7 @@ MonoBehaviour:
       data:
         m_Version: 0
         m_LightShader: {fileID: 4800000, guid: 3f6c848ca3d7bca4bbe846546ac701a1, type: 3}
+        m_RenderingLayerMaskShader: {fileID: 4800000, guid: 9ac9bae9f40d7dc4a80dbf809b9544aa, type: 3}
         m_ProjectedShadowShader: {fileID: 4800000, guid: ce09d4a80b88c5a4eb9768fab4f1ee00, type: 3}
         m_SpriteShadowShader: {fileID: 4800000, guid: 44fc62292b65ab04eabcf310e799ccf6, type: 3}
         m_SpriteUnshadowShader: {fileID: 4800000, guid: de02b375720b5c445afe83cd483bedf3, type: 3}
