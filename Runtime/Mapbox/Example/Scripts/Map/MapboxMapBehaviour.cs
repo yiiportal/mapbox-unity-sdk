@@ -128,7 +128,7 @@ namespace Mapbox.Example.Scripts.Map
         private void OnDestroy()
         {
             MapboxMap?.OnDestroy();
-            UnityContext.OnDestroy();
+            UnityContext?.OnDestroy();
         }
         
         protected virtual MapboxMap CreateMapObject()
