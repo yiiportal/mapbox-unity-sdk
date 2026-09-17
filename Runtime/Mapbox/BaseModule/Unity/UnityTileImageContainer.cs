@@ -71,12 +71,10 @@ namespace Mapbox.BaseModule.Unity
 
             // MaterialPropertyBlock.SetTexture throws ArgumentNullException on a null
             // Texture (unlike Material.SetTexture) — confirmed by an actual crash when
-            // this was set to null. blackTexture is the only safe non-null placeholder;
-            // the tile is inactive at this point anyway (Recycle() deactivates it first),
-            // so this only becomes visible if the tile is reused before LoadTempTile
-            // fills it with real/ancestor imagery — a separate, lower-severity cosmetic
-            // gap from the pan-doesn't-trigger-a-reload bug this was originally chasing.
-            _unityMapTile.PropertyBlock.SetTexture(MainTex, Texture2D.blackTexture);
+            // this was set to null. The tile is inactive at this point anyway (Recycle()
+            // deactivates it first), so gray is a neutral placeholder for the short window
+            // before LoadTempTile fills it with real/ancestor imagery.
+            _unityMapTile.PropertyBlock.SetTexture(MainTex, Texture2D.grayTexture);
             _unityMapTile.ApplyPropertyBlock();
             var rd = ImageData;
             ReleaseImageData();
@@ -85,11 +83,9 @@ namespace Mapbox.BaseModule.Unity
 
         public void DisableImagery()
         {
-            // Same MaterialPropertyBlock null-texture crash as GetAndClearImageData above
-            // — likely why both call sites of this method are commented out in
-            // StaticApiLayerModule. Fixed here too so it's safe if ever re-enabled.
+            // Same MaterialPropertyBlock null-texture crash as GetAndClearImageData above.
             State = TileContainerState.Final;
-            _unityMapTile.PropertyBlock.SetTexture(MainTex, Texture2D.blackTexture);
+            _unityMapTile.PropertyBlock.SetTexture(MainTex, Texture2D.grayTexture);
             _unityMapTile.ApplyPropertyBlock();
         }
 

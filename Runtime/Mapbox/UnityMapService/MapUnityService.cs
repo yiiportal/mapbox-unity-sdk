@@ -43,16 +43,6 @@ namespace Mapbox.UnityMapService
 			_cacheManager = cacheManager ?? new MapboxCacheManager(unityContext, new MemoryCache(), new FileCache(_unityContext.TaskManager), new SqliteCache(_unityContext.TaskManager, 1000));
 		}
 
-		private T GetObject<T>()
-		{
-			var classType = typeof(T);
-			var factoryType = AppDomain.CurrentDomain
-				.GetAssemblies()
-				.SelectMany(s => s.GetTypes()).FirstOrDefault(p => classType.IsAssignableFrom(p) && p != classType);
-
-			return (T) Activator.CreateInstance(factoryType);
-		}
-		
 		public override bool TileCover(IMapInformation mapInformation, TileCover tileCover)
 		{
 			return _tileProvider.GetTileCover(mapInformation, tileCover);

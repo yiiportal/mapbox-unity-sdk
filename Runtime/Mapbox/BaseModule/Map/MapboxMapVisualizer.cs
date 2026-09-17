@@ -37,6 +37,7 @@ namespace Mapbox.BaseModule.Map
 
         private HashSet<UnwrappedTileId> _toRemove;
         private HashSet<CanonicalTileId> _retainedTiles;
+        private HashSet<UnwrappedTileId> _deferredRemovals;
         private Coroutine _internalUpdateCoroutine;
         private bool _destroyed;
 
@@ -80,6 +81,7 @@ namespace Mapbox.BaseModule.Map
 
             _toRemove = new HashSet<UnwrappedTileId>();
             _retainedTiles = new HashSet<CanonicalTileId>();
+            _deferredRemovals = new HashSet<UnwrappedTileId>();
 
             _internalUpdateCoroutine = Runnable.Instance.StartCoroutine(InternalUpdate());
         }
@@ -153,6 +155,7 @@ namespace Mapbox.BaseModule.Map
             {
                 if (ActiveTiles.ContainsKey(tileId))
                 {
+                    _deferredRemovals.Remove(tileId);
                     continue;
                 }
 
@@ -189,13 +192,16 @@ namespace Mapbox.BaseModule.Map
             {
                 if (ActiveTiles.TryGetValue(tileId, out var tile))
                 {
-                    if (tile.LoadingState == LoadingState.Temporary)
-                    {
-                        TempTiles.Remove(tile);
-                    }
-
-                    PoolTile(tile);
+                    _deferredRemovals.Add(tileId);
                 }
+            }
+
+            // New cached tiles are ready immediately. A cover containing temporary tiles
+            // keeps its predecessors visible until InternalUpdate completes that cover,
+            // preventing recycled tiles from being exposed while their replacements fetch.
+            if (tempCount == 0)
+            {
+                PoolDeferredTiles();
             }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -278,6 +284,11 @@ namespace Mapbox.BaseModule.Map
                     PoolTile(tile);
                 }
             }
+
+            if (TempTiles.Count == 0)
+            {
+                PoolDeferredTiles();
+            }
         }
 
 
@@ -318,6 +329,7 @@ namespace Mapbox.BaseModule.Map
 
             TempTiles.Clear();
             _toRemove.Clear();
+            _deferredRemovals.Clear();
         }
 
         /// <summary>
@@ -458,6 +470,24 @@ namespace Mapbox.BaseModule.Map
                     _toRemove.Add(tilePair.Key);
                 }
             }
+        }
+
+        private void PoolDeferredTiles()
+        {
+            foreach (var tileId in _deferredRemovals)
+            {
+                if (ActiveTiles.TryGetValue(tileId, out var tile))
+                {
+                    if (tile.LoadingState == LoadingState.Temporary)
+                    {
+                        TempTiles.Remove(tile);
+                    }
+
+                    PoolTile(tile);
+                }
+            }
+
+            _deferredRemovals.Clear();
         }
 
 
