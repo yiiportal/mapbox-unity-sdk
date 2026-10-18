@@ -10,11 +10,6 @@ namespace Mapbox.BaseModule.Data.DataFetchers
         [HideInInspector] public float[] ElevationValues;
         public bool IsElevationDataReady = false;
 
-        // Flipped to true by Dispose(). Async readback paths can complete after the
-        // owning TerrainData has been evicted; they check this flag before assigning
-        // and return the rented buffer to the pool instead of leaking it.
-        public bool IsDisposed { get; private set; }
-
         /// <summary>
         /// Fires whenever <see cref="SetElevationValues(float[])"/> or
         /// <see cref="SetElevationValues(float[],float,float)"/> completes. Multiple
@@ -44,17 +39,12 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 
         /// <summary>
         /// Returns the rented <see cref="ElevationValues"/> array to
-        /// <see cref="ElevationArrayPool"/> when the cache evicts this entry, then runs
-        /// the standard <see cref="MapboxTileData"/> dispose callback. After this call
-        /// <c>ElevationValues</c> is null; nothing should hold a reference past dispose.
+        /// <see cref="ElevationArrayPool"/> when disposal is completed after all visual
+        /// references release it, then runs the standard <see cref="MapboxTileData"/>
+        /// dispose callback.
         /// </summary>
-        public override void Dispose()
+        protected override void DisposeNow()
         {
-            // Explicit idempotency guard. Today the ElevationValues null-check below
-            // also prevents a double Return-to-pool, but the AsyncExtract late-callback
-            // can reassign ElevationValues after Dispose (its IsDisposed check returns
-            // the buffer to the pool, but a subsequent second Dispose without this guard
-            // would still see IsElevationDataReady etc. flicker). Cheap defensive bail.
             if (IsDisposed) return;
             if (ElevationValues != null)
             {
@@ -62,8 +52,7 @@ namespace Mapbox.BaseModule.Data.DataFetchers
                 ElevationValues = null;
             }
             IsElevationDataReady = false;
-            IsDisposed = true;
-            base.Dispose();
+            base.DisposeNow();
         }
 
         // Cached side length of the square heightmap (sqrt(Length)). Computed once

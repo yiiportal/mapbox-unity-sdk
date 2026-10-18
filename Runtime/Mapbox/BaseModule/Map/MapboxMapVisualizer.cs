@@ -37,6 +37,7 @@ namespace Mapbox.BaseModule.Map
 
         private HashSet<UnwrappedTileId> _toRemove;
         private HashSet<CanonicalTileId> _retainedTiles;
+        private HashSet<UnwrappedTileId> _deferredRemovals;
         private Coroutine _internalUpdateCoroutine;
         private bool _destroyed;
 
@@ -85,6 +86,7 @@ namespace Mapbox.BaseModule.Map
 
             _toRemove = new HashSet<UnwrappedTileId>();
             _retainedTiles = new HashSet<CanonicalTileId>();
+            _deferredRemovals = new HashSet<UnwrappedTileId>();
 
             _internalUpdateCoroutine = Runnable.Instance.StartCoroutine(InternalUpdate());
         }
@@ -121,11 +123,15 @@ namespace Mapbox.BaseModule.Map
         {
             var hashsetTiles = new HashSet<CanonicalTileId>(tileCover.Tiles.Select(x => x.Canonical));
             var coroutines = LayerModules.SelectMany(x => x.GetTileCoverCoroutines(hashsetTiles).Where(x => x != null));
+            Debug.Log($"MapboxMapVisualizer: LoadTileCoverToMemory tiles={hashsetTiles.Count} coroutines={coroutines.Count()}");
             yield return coroutines.WaitForAll();
+            Debug.Log("MapboxMapVisualizer: LoadTileCoverToMemory completed");
         }
 
         public virtual void Load(TileCover tileCover)
         {
+            int instantCount = 0;
+            int tempCount = 0;
             RemoveUnnecessaryTiles(tileCover);
 
             // Protect filler children of temp tiles that are still loading.
@@ -147,6 +153,7 @@ namespace Mapbox.BaseModule.Map
             {
                 if (ActiveTiles.ContainsKey(tileId))
                 {
+                    _deferredRemovals.Remove(tileId);
                     continue;
                 }
 
@@ -154,11 +161,13 @@ namespace Mapbox.BaseModule.Map
                 {
                     if (CreateTileInstant(tileId, out unityMapTile))
                     {
+                        instantCount++;
                         ShowTile(unityMapTile);
                         continue;
                     }
                     else
                     {
+                        tempCount++;
                         CreateTempTile(tileId, out unityMapTile);
                         // Reuse the tile's own Children list across pool/reuse cycles instead of
                         // allocating one per cache miss. PoolTile clears it on return.
@@ -181,14 +190,27 @@ namespace Mapbox.BaseModule.Map
             {
                 if (ActiveTiles.TryGetValue(tileId, out var tile))
                 {
-                    if (tile.LoadingState == LoadingState.Temporary)
-                    {
-                        TempTiles.Remove(tile);
-                    }
-
-                    PoolTile(tile);
+                    _deferredRemovals.Add(tileId);
                 }
             }
+
+            // New cached tiles are ready immediately. A cover containing temporary tiles
+            // keeps its predecessors visible until InternalUpdate completes that cover,
+            // preventing recycled tiles from being exposed while their replacements fetch.
+            if (tempCount == 0)
+            {
+                PoolDeferredTiles();
+            }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            // Fires on nearly every pan/zoom redraw (any cover change has temp or removed
+            // tiles) — stripped from release builds to avoid a per-frame allocation+log on
+            // the pan hot path; kept in dev builds/editor for tile-load diagnostics.
+            if (tempCount > 0 || _toRemove.Count > 0)
+            {
+                Debug.Log($"MapboxMapVisualizer: Load cover={tileCover.Tiles.Count} instant={instantCount} temp={tempCount} removed={_toRemove.Count} active={ActiveTiles.Count}");
+            }
+#endif
 
             _retainedTiles.Clear();
             foreach (var tile in tileCover.Tiles)
@@ -271,6 +293,11 @@ namespace Mapbox.BaseModule.Map
                     PoolTile(tile);
                 }
             }
+
+            if (TempTiles.Count == 0)
+            {
+                PoolDeferredTiles();
+            }
         }
 
 
@@ -299,6 +326,95 @@ namespace Mapbox.BaseModule.Map
 
                 ShowTile(unityMapTile);
             }
+        }
+
+        public void ClearTileSnapshot()
+        {
+            var activeTiles = ActiveTiles.Values.ToList();
+            foreach (var tile in activeTiles)
+            {
+                PoolTile(tile);
+            }
+
+            TempTiles.Clear();
+            _toRemove.Clear();
+            _deferredRemovals.Clear();
+        }
+
+        /// <summary>
+        /// Re-applies already-committed data (e.g. after a raster style swap's
+        /// PrepareTileset/CommitPreparedTileset) to tiles that stay active across the
+        /// swap, in place — no pooling/recreation. Tiles outside <paramref name="tileCover"/>
+        /// or not yet active are left untouched; call Load(tileCover) afterwards to create
+        /// the latter and remove the former exactly as any other cover change would.
+        /// Keeping already-active tiles' GameObjects alive (instead of a ClearTileSnapshot()
+        /// + Load() pair) preserves DelveInto's ancestor-tile fallback pool for the same
+        /// Load() call — wiping ActiveTiles first removes that fallback for the whole cover
+        /// at once, so a single tile whose instant data isn't ready yet renders fully blank
+        /// instead of a blurry filler.
+        /// </summary>
+        public void RefreshActiveTileVisuals(TileCover tileCover)
+        {
+            foreach (var tileId in tileCover.Tiles)
+            {
+                if (ActiveTiles.TryGetValue(tileId, out var unityMapTile) &&
+                    unityMapTile.LoadingState == LoadingState.Finished)
+                {
+                    CreateTile(unityMapTile);
+                }
+            }
+        }
+
+        public void ReconcileActiveTiles(TileCover tileCover)
+        {
+            foreach (var tileId in tileCover.Tiles)
+            {
+                if (!ActiveTiles.TryGetValue(tileId, out var unityMapTile))
+                {
+                    continue;
+                }
+
+                bool wasTemporary = unityMapTile.LoadingState == LoadingState.Temporary;
+                if (!CreateTile(unityMapTile))
+                {
+                    continue;
+                }
+
+                ShowTile(unityMapTile);
+                if (!wasTemporary)
+                {
+                    continue;
+                }
+
+                if (unityMapTile.Children != null && unityMapTile.Children.Count > 0)
+                {
+                    foreach (var child in unityMapTile.Children)
+                    {
+                        PoolTile(child);
+                    }
+                    unityMapTile.Children.Clear();
+                }
+
+                TempTiles.Remove(unityMapTile);
+            }
+
+            Load(tileCover);
+        }
+
+        public int CountMissingVisibleTiles(TileCover tileCover)
+        {
+            int missingCount = 0;
+            foreach (var tileId in tileCover.Tiles)
+            {
+                if (!ActiveTiles.TryGetValue(tileId, out var unityMapTile) ||
+                    unityMapTile.ImageContainer.ImageData == null ||
+                    unityMapTile.ImageContainer.ImageData.Texture == null)
+                {
+                    missingCount++;
+                }
+            }
+
+            return missingCount;
         }
 
         public void OnDestroy()
@@ -363,6 +479,24 @@ namespace Mapbox.BaseModule.Map
                     _toRemove.Add(tilePair.Key);
                 }
             }
+        }
+
+        private void PoolDeferredTiles()
+        {
+            foreach (var tileId in _deferredRemovals)
+            {
+                if (ActiveTiles.TryGetValue(tileId, out var tile))
+                {
+                    if (tile.LoadingState == LoadingState.Temporary)
+                    {
+                        TempTiles.Remove(tile);
+                    }
+
+                    PoolTile(tile);
+                }
+            }
+
+            _deferredRemovals.Clear();
         }
 
 

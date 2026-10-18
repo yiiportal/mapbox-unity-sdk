@@ -6,6 +6,7 @@
 
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Platform;
+using Mapbox.BaseModule.Data.Platform.Cache;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -156,13 +157,16 @@ namespace Mapbox.BaseModule.Data.Tiles
 		{
 			if (_webRequest != null)
 			{
-				Texture2D = DownloadHandlerTexture.GetContent(_webRequest.Core);
+				Texture2D = _webRequest is ITextureWebRequest textureWebRequest
+					? textureWebRequest.TakeTexture()
+					: DownloadHandlerTexture.GetContent(_webRequest.Core);
 				if (Texture2D != null)
 				{
 					Texture2D.wrapMode = TextureWrapMode.Clamp;
-#if UNITY_EDITOR
+					// FORK yiiportal: name on device too (was editor-only) so on-device
+					// memory diagnostics can attribute tile textures by tile id and
+					// distinguish extracted tiles from request-owned textures.
 					Texture2D.name = string.Format("{0}_{1}", Id.ToString(), TilesetId);
-#endif
 				}
 				else
 				{

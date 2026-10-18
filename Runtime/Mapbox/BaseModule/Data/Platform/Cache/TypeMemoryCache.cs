@@ -72,6 +72,22 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         {
             if (!OnMainThread(nameof(Add)))
                 return;
+            // FORK yiiportal: overwriting used to leak the replaced entry's Texture2D —
+            // a native object the GC cannot free (e.g. every expired-tile refresh).
+            // Dispose whatever this key currently holds before storing the new data.
+            if (_active.TryGetValue(data.TileId, out var existing))
+            {
+                if (!ReferenceEquals(existing, data))
+                {
+                    existing.Dispose();
+                }
+            }
+            else if (_inactiveMap.TryGetValue(data.TileId, out var node))
+            {
+                _inactiveList.Remove(node);
+                _inactiveMap.Remove(data.TileId);
+                node.Value.value.Dispose();
+            }
             _active[data.TileId] = data;
         }
         
@@ -192,18 +208,22 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             }
         }
 
+        public IReadOnlyDictionary<CanonicalTileId, T> GetActiveData => _active;
+        public IReadOnlyDictionary<CanonicalTileId, T> GetFallbackData => _fallbackDatas;
+
         public void ClearInactive()
         {
             if (!OnMainThread(nameof(ClearInactive)))
                 return;
             foreach (var tileData in _inactiveList)
             {
+                CacheItemDisposed(tileData.key);
                 tileData.value.Dispose();
             }
-            _inactiveMap.Clear();
             _inactiveList.Clear();
+            _inactiveMap.Clear();
         }
-        
+
         public IEnumerable<T> GetAllDatas()
         {
             foreach (var data in _active)
@@ -246,9 +266,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         
         public int ActiveCount => _active.Count;
         public int InactiveCount => _inactiveMap.Count;
-
-        public Dictionary<CanonicalTileId, T> GetActiveData => _active;
-        public Dictionary<CanonicalTileId, T> GetFallbackData => _fallbackDatas;
+        public int FallbackCount => _fallbackDatas.Count;
     }
     
     public interface ITypeCache

@@ -30,11 +30,14 @@ namespace Mapbox.BaseModule.Unity
 
         public void SetImageData(RasterData imageData, TileContainerState state = TileContainerState.Final)
         {
-            if (ImageData != null)
+            if (ReferenceEquals(ImageData, imageData))
             {
-                ImageData.RemoveDisposeCallback(_onDispose);
+                State = state;
+                OnImageryUpdated();
+                return;
             }
 
+            ReleaseImageData();
             State = state;
             if (imageData.Texture == null || imageData.TileId.Z == 0)
             {
@@ -42,6 +45,7 @@ namespace Mapbox.BaseModule.Unity
             }
 
             ImageData = imageData;
+            ImageData.RetainVisualReference();
             ImageData.AddDisposeCallback(_onDispose);
             OnImageryUpdated();
         }
@@ -65,32 +69,42 @@ namespace Mapbox.BaseModule.Unity
             if (ImageData == null)
                 return null;
 
-            _unityMapTile.PropertyBlock.SetTexture(MainTex, Texture2D.blackTexture);
+            // MaterialPropertyBlock.SetTexture throws ArgumentNullException on a null
+            // Texture (unlike Material.SetTexture) — confirmed by an actual crash when
+            // this was set to null. The tile is inactive at this point anyway (Recycle()
+            // deactivates it first), so gray is a neutral placeholder for the short window
+            // before LoadTempTile fills it with real/ancestor imagery.
+            _unityMapTile.PropertyBlock.SetTexture(MainTex, Texture2D.grayTexture);
             _unityMapTile.ApplyPropertyBlock();
             var rd = ImageData;
-            ImageData.RemoveDisposeCallback(_onDispose);
-            ImageData = null;
+            ReleaseImageData();
             return rd;
         }
 
         public void DisableImagery()
         {
+            // Same MaterialPropertyBlock null-texture crash as GetAndClearImageData above.
             State = TileContainerState.Final;
-            _unityMapTile.PropertyBlock.SetTexture(MainTex, null);
+            _unityMapTile.PropertyBlock.SetTexture(MainTex, Texture2D.grayTexture);
             _unityMapTile.ApplyPropertyBlock();
         }
 
         public void OnDestroy()
         {
-            // Symmetric detach to mirror UnityTileTerrainContainer's fix: the multicast
-            // _onDispose callback we added at SetImageData must be removed here, otherwise
-            // a future RasterData eviction fires the closure into a destroyed tile and
-            // cascades through OnDataDisposed → OnTileBroken → PoolTile on a dead tile.
-            if (ImageData != null)
+            ReleaseImageData();
+        }
+
+        private void ReleaseImageData()
+        {
+            if (ImageData == null)
             {
-                ImageData.RemoveDisposeCallback(_onDispose);
-                ImageData = null;
+                return;
             }
+
+            var imageData = ImageData;
+            ImageData = null;
+            imageData.RemoveDisposeCallback(_onDispose);
+            imageData.ReleaseVisualReference();
         }
     }
 }
