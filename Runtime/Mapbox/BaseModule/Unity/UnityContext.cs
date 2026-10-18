@@ -59,7 +59,7 @@ namespace Mapbox.BaseModule.Unity
 
         public void OnDestroy()
         {
-            TaskManager.OnDestroy();
+            TaskManager?.OnDestroy();
         }
 
         public IEnumerator HandlePermission()
