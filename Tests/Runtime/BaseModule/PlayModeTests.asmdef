@@ -1,5 +1,5 @@
 {
-    "name": "PlayModeTests",
+    "name": "Mapbox.PlayModeTests",
     "rootNamespace": "",
     "references": [
         "UnityEngine.TestRunner",

@@ -2,7 +2,8 @@
     "name": "MapboxLocationModule",
     "rootNamespace": "",
     "references": [
-        "GUID:093b9fb2cd4794a8c94472d55c8bb0a9"
+        "GUID:093b9fb2cd4794a8c94472d55c8bb0a9",
+        "GUID:d4aa1a00dd4649e6a3c2c49966ce09f0"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
