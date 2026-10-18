@@ -1,3 +1,4 @@
+using UnityEngine;
 using UnityEngine.Networking;
 
 namespace Mapbox.BaseModule.Data.Platform.Cache
@@ -8,5 +9,10 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         UnityWebRequest Core { get; }
 
         int TryCount { get; }
+    }
+
+    public interface ITextureWebRequest : IWebRequest
+    {
+        Texture2D TakeTexture();
     }
 }

@@ -60,9 +60,7 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 			if (rasterData.Texture != null)
 			{
 				rasterData.Texture.wrapMode = TextureWrapMode.Clamp;
-#if UNITY_EDITOR
 				rasterData.Texture.name = string.Format("{0}_{1}", tileId.ToString(), tilesetId);
-#endif
 			}
 
 			return rasterData;
