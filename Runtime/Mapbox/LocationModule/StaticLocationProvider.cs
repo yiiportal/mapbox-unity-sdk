@@ -32,6 +32,18 @@ namespace Mapbox.LocationModule
 			};
 		}
 
+		/// <summary>
+		/// Pumped by LocationProviderFactory.Update. The legacy
+		/// EditorLocationProvider auto-fired every frame; without this,
+		/// SetLocation never runs, so IsLocationServiceEnabled stays false
+		/// and OnLocationUpdated never fires — consumers waiting for a
+		/// valid first fix (e.g. map recentering) hang forever in Editor.
+		/// </summary>
+		public override void Update()
+		{
+			SendLocationEvent();
+		}
+
 		protected override void SetLocation()
 		{
 			//_currentLocation.UserHeading = transform.eulerAngles.y;

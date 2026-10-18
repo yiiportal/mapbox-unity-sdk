@@ -71,6 +71,14 @@ namespace Mapbox.LocationModule
         public UnityLocationProviderSettings UnityLocationProviderSettings => _unityLocationProviderSettings;
 
         /// <summary>
+        /// Routes through <see cref="MapboxLocationServiceUnityWrapper"/>'s
+        /// LocationAuthorizationBridge gate on iOS so callers (LocationProviderFactory's
+        /// startup coroutine) don't trip Main Thread Checker against
+        /// Input.location.isEnabledByUser before native authorization has been observed.
+        /// </summary>
+        public bool IsEnabledByUser => _locationService.isEnabledByUser;
+
+        /// <summary>
         /// Constructor for production use - uses Unity's real location service.
         /// </summary>
         [Preserve]
@@ -84,7 +92,7 @@ namespace Mapbox.LocationModule
         /// </summary>
         public UnityLocationProvider(UnityLocationProviderSettings settings, IMapboxLocationService locationService)
         {
-            _unityLocationProviderSettings = settings;
+            _unityLocationProviderSettings = settings ?? throw new ArgumentNullException(nameof(settings));
             _locationService = locationService ?? throw new ArgumentNullException(nameof(locationService));
             //HandlePermission();
 
@@ -106,17 +114,151 @@ namespace Mapbox.LocationModule
             _lastPositions = new CircularBuffer<LatitudeLongitude>(_maxLastPositions);
         }
 
+        // Foreground power tiering (iOS_App_Review_Gaps.md "Foreground GPS and
+        // location tiering"): scenes without live map-follow/AR don't need
+        // best-accuracy fixes. Coarse mode restarts the OS service with relaxed
+        // parameters. Authorization is untouched — only a
+        // running service is cycled, so the #133 authorization-observed start
+        // path in LocationProviderFactory.Initialize stays the single owner of
+        // first start.
+        private const float CoarseDesiredAccuracyInMeters = 10.0f;
+        private const float CoarseUpdateDistanceInMeters = 5.0f;
+
+        // Fine tier means a scene is rendering a live "you" position (Map/Portal), so every
+        // fix is delivered: a non-zero distance filter stops delivery entirely while the
+        // user stands still, which freezes the newest capture timestamp and ages out every
+        // consumer's freshness check even though an accurate position is on hand. That is
+        // what left the map on an approximate marker after a stationary return from another
+        // scene. The serialized UpdateDistanceInMeters is deliberately not consulted here;
+        // battery is saved in the coarse tier, which is every other scene.
+        private const float FineUpdateDistanceInMeters = 0f;
+        private bool _coarsePowerMode;
+        private bool _compassEnabled;
+        private bool _hasAppliedSessionParameters;
+        private float _appliedDesiredAccuracyInMeters;
+        private float _appliedUpdateDistanceInMeters;
+
+        private float ActiveDesiredAccuracyInMeters => _coarsePowerMode ? CoarseDesiredAccuracyInMeters : UnityLocationProviderSettings.DesiredAccuracyInMeters;
+        private float ActiveUpdateDistanceInMeters => _coarsePowerMode
+            ? CoarseUpdateDistanceInMeters
+            : FineUpdateDistanceInMeters;
+
+        /// <summary>
+        /// Starts (or retunes an already-running) location session at the
+        /// currently active accuracy tier. The sole entry point for touching
+        /// _locationService.Start — called once by LocationProviderFactory
+        /// after its permission/authorization gate clears, and again by
+        /// SetCoarsePowerMode to retune a live session. Routing both through
+        /// here means a coarse-mode request made before the first Start() is
+        /// still honored: ActiveDesiredAccuracyInMeters/ActiveUpdateDistanceInMeters
+        /// always reflect the current _coarsePowerMode, however it was set.
+        /// </summary>
+        public void Start()
+        {
+            _appliedDesiredAccuracyInMeters = ActiveDesiredAccuracyInMeters;
+            _appliedUpdateDistanceInMeters = ActiveUpdateDistanceInMeters;
+            _hasAppliedSessionParameters = true;
+            _locationService.Start(_appliedDesiredAccuracyInMeters, _appliedUpdateDistanceInMeters);
+            Input.compass.enabled = _compassEnabled;
+        }
+
+        /// <summary>
+        /// Reconciles the running session with the active tier. A flip requested while the
+        /// service was still starting records the mode but cannot retune anything (see
+        /// SetCoarsePowerMode's early return), and nothing would ever re-issue it: the next
+        /// flip to the same mode short-circuits, so the session would keep the previous
+        /// tier's distance filter — and therefore its delivery cadence — for the rest of
+        /// the run. Called from Update on every poll that finds the service usable.
+        /// </summary>
+        private void ApplyPendingSessionParameters()
+        {
+            if (_hasAppliedSessionParameters &&
+                Mathf.Approximately(_appliedDesiredAccuracyInMeters, ActiveDesiredAccuracyInMeters) &&
+                Mathf.Approximately(_appliedUpdateDistanceInMeters, ActiveUpdateDistanceInMeters))
+            {
+                return;
+            }
+
+            Start();
+        }
+
+        /// <summary>
+        /// Pushes one final disabled-state location update and stops delivering
+        /// fixes. Called by LocationProviderFactory when its startup coroutine
+        /// gives up before ever calling Start() (permission denied, iOS
+        /// authorization-observation timeout) — without this, OnLocationUpdated
+        /// never fires on those paths and subscribers only ever see silence.
+        /// </summary>
+        public void SetUnavailable()
+        {
+            _currentLocation.IsLocationServiceEnabled = false;
+            SendLocation(_currentLocation);
+        }
+
+        public void SetCoarsePowerMode(bool coarse)
+        {
+            if (_coarsePowerMode == coarse)
+            {
+                return;
+            }
+            _coarsePowerMode = coarse;
+
+            // Not delivering fixes yet (authorization wait, denied, or still
+            // initializing) — the eventual Start() call picks up the active
+            // mode via ActiveDesiredAccuracyInMeters/ActiveUpdateDistanceInMeters;
+            // nothing to cycle now. IsLocationServiceEnabled (not a strict status
+            // check) matches Update()'s own tolerant "is this service usable"
+            // read, which on some devices stays true through transient status
+            // blips that aren't exactly Running while fixes keep arriving.
+            if (_locationService == null || !_currentLocation.IsLocationServiceEnabled)
+            {
+                return;
+            }
+
+            // Re-issuing Start() on an already-running service retunes its accuracy/
+            // distance parameters in place (Unity's documented behavior for calling
+            // Start() while LocationServiceStatus is Running) — no Stop() first.
+            // Stopping and restarting the platform session invalidates the current
+            // fix and forces a fresh acquisition, producing a real GPS gap on every
+            // Map<->other-scene tier flip; a bare Start() call updates the live
+            // session without that gap, and status stays Running throughout so no
+            // re-init/NotifyServiceStarted signal is needed.
+            Start();
+        }
+
+        public void SetCompassEnabled(bool enabled)
+        {
+            _compassEnabled = enabled;
+            Input.compass.enabled = enabled;
+        }
+
         public override void Update()
         {
             if (Time.realtimeSinceStartup - _lastPollTime < _updateInterval)
                 return;
             _lastPollTime = Time.realtimeSinceStartup;
 
+            // Check service status BEFORE reading lastData. Reading
+            // Input.location.lastData while the service is not running triggers
+            // Unity's "Location service updates are not enabled" warning and
+            // returns stale/zero data.
+            var serviceRunning = _locationService.status == LocationServiceStatus.Running;
+            if (!serviceRunning && _lastLocationTimestamp == 0)
+            {
+                // Service has never delivered a fix — nothing to read yet.
+                _currentLocation.IsLocationServiceEnabled = false;
+                _currentLocation.IsUserHeadingUpdated = false;
+                _currentLocation.IsLocationUpdated = false;
+                return;
+            }
+
+            // Service is running, or it was running previously and we have a
+            // valid last timestamp (transient status blip). Safe to read.
             var lastData = _locationService.lastData;
             var timestamp = lastData.timestamp;
 
             _currentLocation.IsLocationServiceEnabled =
-                _locationService.status == LocationServiceStatus.Running
+                serviceRunning
                 || timestamp > _lastLocationTimestamp;
 
             _currentLocation.IsUserHeadingUpdated = false;
@@ -124,6 +266,8 @@ namespace Mapbox.LocationModule
 
             if (!_currentLocation.IsLocationServiceEnabled)
                 return;
+
+            ApplyPendingSessionParameters();
 
             // device orientation, user heading get calculated below
             UnityLocationProviderSettings.DeviceOrientationSmoothing.Add(Input.compass.trueHeading);
