@@ -10,6 +10,8 @@ namespace Mapbox.BaseModule.Map
 {
     public class MapboxContext : IMapboxContext
     {
+        public static string AccessTokenOverride;
+        public static bool SkipTokenValidation;
         public MapboxConfiguration Configuration;
         private ITelemetryLibrary _telemetryLibrary;
 
@@ -53,6 +55,15 @@ namespace Mapbox.BaseModule.Map
             }
 
             var config = JsonUtility.FromJson<MapboxConfiguration>(configurationTextAsset.text);
+            if (!string.IsNullOrEmpty(AccessTokenOverride))
+            {
+                config.AccessToken = AccessTokenOverride;
+                Debug.Log("MapboxContext: Using access token override.");
+            }
+            else if (string.IsNullOrEmpty(config.AccessToken))
+            {
+                Debug.LogWarning("MapboxContext: Access token is empty. Map tiles will not load.");
+            }
             config.Initialize();
             return config;
         }
@@ -78,12 +89,31 @@ namespace Mapbox.BaseModule.Map
         {
             var config = LoadAndParseConfig();
 
+            if (SkipTokenValidation)
+            {
+                Debug.Log("MapboxContext: Skipping token validation.");
+                _mapboxToken = new MapboxToken { Status = MapboxTokenStatus.TokenValid };
+                Configuration = config;
+                ConfigureTelemetry();
+                yield break;
+            }
+
             if (validateToken)
             {
                 var tokenValidator = new MapboxTokenApi();
                 var configLoaded = false;
+                var timedOut = false;
                 tokenValidator.Retrieve(config.GetMapsSkuToken, config.AccessToken, (response) =>
                 {
+                    // If the wait below already gave up and handed `config` off as
+                    // Configuration, applying a late-arriving response here would
+                    // silently mutate (e.g. blank the AccessToken on) an object
+                    // already in active use elsewhere.
+                    if (timedOut)
+                    {
+                        Debug.LogWarning("MapboxContext: Token validation response arrived after timeout; ignoring.");
+                        return;
+                    }
                     HandleTokenResponse(config, response);
                     configLoaded = true;
                 });
@@ -95,6 +125,7 @@ namespace Mapbox.BaseModule.Map
                     if (elapsed >= TokenValidationTimeoutSeconds)
                     {
                         Debug.LogError("Token validation timed out. Proceeding with unvalidated configuration.");
+                        timedOut = true;
                         Configuration = config;
                         break;
                     }

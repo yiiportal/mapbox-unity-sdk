@@ -1,3 +1,4 @@
+using System;
 using Mapbox.BaseModule.Data.Vector2d;
 using Mapbox.BaseModule.Map;
 using Mapbox.BaseModule.Utilities;
@@ -29,6 +30,7 @@ namespace Mapbox.Example.Scripts.MapInput
 		}
 	}
 
+	[Serializable]
 	public abstract class MapInput
 	{
 		protected Camera _camera;

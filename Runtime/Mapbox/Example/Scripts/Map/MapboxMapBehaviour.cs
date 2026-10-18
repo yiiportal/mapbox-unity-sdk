@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Linq;
 using Mapbox.BaseModule;
+using Mapbox.BaseModule.Data.Vector2d;
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Platform.Cache;
 using Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache;
@@ -58,9 +59,16 @@ namespace Mapbox.Example.Scripts.Map
             {
                 if (LocationFactory != null)
                 {
-                    yield return LocationFactory.Initialize();
+                    if (ShouldInitializeLocationProvider)
+                    {
+                        yield return LocationFactory.Initialize();
+                    }
                     var locationProvider = LocationFactory.DefaultLocationProvider;
-                    MapInformation.SetLatitudeLongitude(locationProvider.CurrentLocation.LatitudeLongitude);
+                    if (locationProvider != null &&
+                        TryGetProviderInitialLocation(locationProvider, out var latLng))
+                    {
+                        MapInformation.SetLatitudeLongitude(latLng);
+                    }
                 }
             }
             else
@@ -68,6 +76,17 @@ namespace Mapbox.Example.Scripts.Map
                 Debug.Log("Location permission is " + UnityContext.LocationPermissionState);
             }
             
+            var moduleScripts = GetComponents<ModuleConstructorScript>();
+            if (moduleScripts == null || moduleScripts.Length == 0)
+            {
+                Debug.LogError("MapboxMapBehaviour: No ModuleConstructorScript components found. Add a map layer module (e.g., VectorLayerModuleScript or StaticApiLayerModuleScript) to render tiles.");
+            }
+            else
+            {
+                int enabledCount = moduleScripts.Count(m => m != null && m.enabled);
+                Debug.Log($"MapboxMapBehaviour: Found {moduleScripts.Length} module script(s), enabled {enabledCount}.");
+            }
+
             var mapboxContext = new MapboxContext();
             yield return mapboxContext.Initialize();
             _mapService = GetMapService(mapboxContext, UnityContext);
@@ -76,6 +95,17 @@ namespace Mapbox.Example.Scripts.Map
             MapboxMap = CreateMapObject();
             MapboxMap.Initialized += InitializationCompleted;
             yield return MapboxMap.Initialize();
+        }
+
+        protected virtual bool ShouldInitializeLocationProvider => true;
+
+        protected virtual bool TryGetProviderInitialLocation(
+            ILocationProvider locationProvider,
+            out LatitudeLongitude latitudeLongitude)
+        {
+            latitudeLongitude = locationProvider.CurrentLocation.LatitudeLongitude;
+            return Math.Abs(latitudeLongitude.Latitude) > 0.01 ||
+                   Math.Abs(latitudeLongitude.Longitude) > 0.01;
         }
         
 
@@ -98,7 +128,7 @@ namespace Mapbox.Example.Scripts.Map
         private void OnDestroy()
         {
             MapboxMap?.OnDestroy();
-            UnityContext.OnDestroy();
+            UnityContext?.OnDestroy();
         }
         
         protected virtual MapboxMap CreateMapObject()
@@ -181,6 +211,9 @@ namespace Mapbox.Example.Scripts.Map
                 : new DataFetchingManager(mapboxContext.GetAccessToken(), mapboxContext.GetSkuToken);
         }
         
+        public DataFetchingManager GetFetchingManager() =>
+            (_mapService as IUnityMapService)?.GetFetchingManager();
+
         private Camera FindCamera()
         {
             var mapCamera = Camera.main;

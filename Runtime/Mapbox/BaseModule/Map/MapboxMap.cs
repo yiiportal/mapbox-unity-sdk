@@ -129,15 +129,18 @@ namespace Mapbox.BaseModule.Map
         public IEnumerator LoadMapViewCoroutine(LatitudeLongitude targetLocation, Action callback = null)
         {
             Status = InitializationStatus.LoadingView;
+            Debug.Log($"MapboxMap: LoadMapView started. Target={targetLocation.Latitude:F5},{targetLocation.Longitude:F5}");
             LoadViewStarting();
             MapInformation.SetLatitudeLongitude(targetLocation);
             
             MapService.TileCover(MapInformation, TileCover);
+            Debug.Log($"MapboxMap: TileCover size={TileCover.Tiles.Count}");
             yield return MapVisualizer.LoadTileCoverToMemory(TileCover);
             MapVisualizer.LoadSnapshot(TileCover);
             
             LoadViewCompleted();
             Status = InitializationStatus.ReadyForUpdates;
+            Debug.Log("MapboxMap: LoadMapView completed.");
             callback?.Invoke();
         }
 
@@ -230,4 +233,3 @@ namespace Mapbox.BaseModule.Map
         public Action<UnityMapTile> TileUnloading = (tile) => { };
     }
 }
-
