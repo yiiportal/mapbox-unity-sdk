@@ -14,9 +14,10 @@ namespace Mapbox.LandmarksModule
     internal struct LandmarkAnchor
     {
         /// <summary>
-        /// The building's own GameObject. Its parent chain has unit Y scale (the landmark tile root
-        /// uses <c>localScale = (tileSize, 1, tileSize)</c>), so a local Y set on this transform is
-        /// world Y one-to-one - no tile-size division, unlike the vector mesh modifiers.
+        /// The building's own GameObject. Its parent is the landmark tile root, scaled
+        /// <c>(tileSize, 1 / (Scale * cos(latitude)), tileSize)</c> so vertex heights stay in metres
+        /// (FORK yiiportal). A local Y set on this transform is therefore multiplied by that factor;
+        /// divide by the root's Y scale to write a world offset.
         /// </summary>
         public Transform Transform;
 

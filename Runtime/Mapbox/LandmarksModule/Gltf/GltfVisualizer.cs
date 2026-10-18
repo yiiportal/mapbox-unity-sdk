@@ -608,9 +608,6 @@ namespace Mapbox.LandmarksModule
                 // which the loop below would index straight past the end of.
                 var hasNormals = _normalBuffer.Count == _positionBuffer.Count;
 
-                var heightDivisor = _mapInformation.Scale *
-                    (float)Conversions.LatitudeElevationCompensation(_mapInformation.LatitudeLongitude.Latitude);
-
                 var min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
                 var max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
 
@@ -619,7 +616,10 @@ namespace Mapbox.LandmarksModule
                     var vert = _positionBuffer[i];
                     var moved = new Vector3(
                         (matrix[12] / TileExtent) + (-vert.x / TileExtent) * matrix[0],
-                        vert.z / heightDivisor,
+                        // FORK yiiportal: kept in metres. The map-scale and latitude factor is the
+                        // tile root's Y scale (LandmarksLayerModule.PositionBuilding), so it tracks
+                        // dynamic scaling without rebuilding the mesh.
+                        vert.z,
                         (-matrix[13] / TileExtent) + (vert.y / TileExtent) * -matrix[5]);
                     _positionBuffer[i] = moved;
 

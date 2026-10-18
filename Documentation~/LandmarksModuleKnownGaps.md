@@ -6,27 +6,13 @@ For how the module works, see [Landmarks Module](LandmarksModule.md) and [Intern
 
 ---
 
-### Dynamic scaling is not supported
+### Dynamic scaling (resolved in the YiiPortal fork)
 
-**Landmark heights are wrong after any zoom step when the map uses `DynamicScalingMapInformation`.**
+**FORK yiiportal (`sdk3.2`):** resolved by moving the divisor out of the vertices. `GltfVisualizer.FlipYZ` keeps vertex Y in metres, and `LandmarksLayerModule.PositionBuilding` applies `1 / (Scale · cos φ)` as the tile root's Y scale. `PositionBuilding` already runs for every tile root from `UpdatePositioning`, which `MapboxMapVisualizer.RepositionAllTiles` calls on both `WorldScaleChanged` and `LatitudeLongitudeChanged`, so a zoom step or recenter rewrites one transform per tile and never touches a mesh. `LandmarkTerrainSnapper` writes each building's local Y divided by the root's Y scale, so a snapped base still lands at `metres / Scale` in world units.
 
-`GltfVisualizer.FlipYZ` bakes the map's `Scale` into each vertex's Y at generation time:
+Upstream, `FlipYZ` baked `Scale` into each vertex's Y at generation time, so under `DynamicScalingMapInformation` a landmark kept the vertical scale of the zoom it was generated at. The shipped samples use plain `MapInformation` with a fixed `Scale` of 1000, so the baked value never went stale there.
 
-```csharp
-verts[i] = new Vector3(
-    (matrix[12] / 8192) + (-vert.x / 8192) * matrix[0],
-    vert.z / (_mapInformation.Scale * Conversions.LatitudeElevationCompensation(_mapInformation.LatitudeLongitude.Latitude)),
-    (-matrix[13] / 8192) + (vert.y / 8192) * -matrix[5]);
-```
-
-`DynamicScalingMapInformation.Scale` is `_initialScale * ScaleCurve.Evaluate(Zoom)` — it changes on every zoom step, and raises `WorldScaleChanged`. Every other consumer recomputes: tiles are repositioned through `RepositionAllTiles`, and `LandmarksLayerModule.UpdatePositioning` re-derives each landmark's base Y for exactly this reason. The geometry *above* the base does not, because it is already in the vertex buffer. A landmark generated at one zoom keeps that zoom's vertical scale for as long as it lives, so buildings grow or shrink relative to the terrain and to each other as the user zooms.
-
-Not visible in the shipped samples: all three use plain `MapInformation` with a fixed `Scale` of 1000, so the baked value never goes stale.
-
-Two ways out, neither small:
-
-- **Move the divisor out of the vertices.** Store raw metres in Y and apply `1 / (Scale · cos φ)` as a transform scale on the landmark tile root, so a scale change is a transform write rather than a mesh rewrite. This is the direction the commented-out line in `LandmarksLayerModule.PositionBuilding` was reaching for. Note the constraint this creates: anything that positions individual buildings by writing a local Y on them relies on the tile root's Y scale being exactly 1, so that a child's local Y is world Y. Putting a scale there breaks that, and both would have to move together.
-- **Regenerate on scale change.** Straightforward and correct, but it means re-running glTF instantiation for every visible landmark on every zoom step, which is not viable at interaction rates.
+Colliders built by `LandmarkHighlightBehaviour` sit under the non-uniformly scaled root. A `MeshCollider` under a changing non-uniform scale is re-cooked on every change, so highlighting/selection under dynamic scaling stays unsupported.
 
 Related and worth deciding at the same time: landmark geometry uses `metres / (Scale · cos φ)` while the terrain surface uses `metres / Scale`. A landmark therefore stands correctly *on* the ground but is internally taller per metre than the relief it sits on — about 30% at latitude 40, 2× at latitude 60. Vector buildings have the identical split (`HeightModifier` cos-corrected, `SnapTerrainModifier` not), so this is an SDK-wide convention question rather than a landmarks bug. Whichever way it is settled, both paths should be settled together.
 

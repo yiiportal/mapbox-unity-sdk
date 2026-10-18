@@ -396,8 +396,14 @@ namespace Mapbox.LandmarksModule
 			{
 				if (!HasElevation || _transform == null || scale <= 0f) return;
 
+				// FORK yiiportal: the tile root (this building's parent) no longer has unit Y
+				// scale - it carries the metres-to-world height factor - so the target offset is
+				// converted back into the root's space.
+				var parentScaleY = _transform.parent != null ? _transform.parent.localScale.y : 1f;
+				if (parentScaleY <= 0f) return;
+
 				var local = _transform.localPosition;
-				_transform.localPosition = new Vector3(local.x, _metres / scale, local.z);
+				_transform.localPosition = new Vector3(local.x, _metres / scale / parentScaleY, local.z);
 			}
 		}
 	}

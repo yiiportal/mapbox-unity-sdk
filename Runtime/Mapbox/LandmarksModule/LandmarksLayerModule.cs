@@ -9,6 +9,7 @@ using Mapbox.BaseModule.Data.Tasks;
 using Mapbox.BaseModule.Data.Tiles;
 using Mapbox.BaseModule.Map;
 using Mapbox.BaseModule.Unity;
+using Mapbox.BaseModule.Utilities;
 using UnityEngine;
 
 namespace Mapbox.LandmarksModule
@@ -18,7 +19,8 @@ namespace Mapbox.LandmarksModule
 	/// and hides the basic buildings they overlap.
 	///
 	/// <b>Preview.</b> This module ships as preview in v3.2.0: its API and behaviour may change in a
-	/// minor release. Dynamic map scaling is not supported. See
+	/// minor release. FORK yiiportal: dynamic map scaling is supported; vertex heights stay in metres
+	/// and the tile root's Y scale carries the map-scale factor. See
 	/// <c>Documentation~/LandmarksModuleKnownGaps.md</c> for everything outstanding.
 	/// </summary>
 	public class LandmarksLayerModule : ILayerModule
@@ -491,9 +493,17 @@ namespace Mapbox.LandmarksModule
 		{
 			_mapInformation.PositionObjectFor(tileId, out var pos, out var scale);
 			tr.position = pos;
-			//landmark x/z are in 0-1 space. heights though, are in real world meters. so we don't scale tile Y here.
-			//tr.localScale = new Vector3(scale.x, 1 / (_mapInformation.Scale * (float)Conversions.LatitudeElevationCompensation(_mapInformation.LatitudeLongitude.Latitude)), scale.y);
-			tr.localScale = new Vector3(scale.x, 1, scale.y);
+			// x/z are in 0-1 tile space; vertex heights are in metres. FORK yiiportal: the
+			// metres-to-world factor is applied here rather than baked into the vertices, so a
+			// DynamicScalingMapInformation zoom or recenter only rewrites this transform.
+			tr.localScale = new Vector3(scale.x, HeightScale(), scale.y);
+		}
+
+		private float HeightScale()
+		{
+			var divisor = _mapInformation.Scale *
+				Conversions.LatitudeElevationCompensation(_mapInformation.LatitudeLongitude.Latitude);
+			return divisor > 0f ? 1f / divisor : 1f;
 		}
 
 
