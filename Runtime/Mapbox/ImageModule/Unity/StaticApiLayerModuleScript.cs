@@ -45,7 +45,10 @@ namespace Mapbox.Example.Scripts.ModuleBehaviours
 				Settings.DataSettings.TilesetId = imageryTileset.Id;
 			}
 
-			ModuleImplementation = new StaticApiLayerModule(service.GetStaticRasterSource(Settings.DataSettings), Settings);
+			ModuleImplementation = new StaticApiLayerModule(
+				service.GetStaticRasterSource(Settings.DataSettings),
+				Settings,
+				mapInformation);
 			return ModuleImplementation;
 		}
 	}

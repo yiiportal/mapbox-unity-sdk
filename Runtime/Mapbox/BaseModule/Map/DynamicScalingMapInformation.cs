@@ -13,10 +13,19 @@ namespace Mapbox.BaseModule.Map
         private float _initialScale;
         [SerializeField] private bool _useDynamicScaling = false;
         [SerializeField] private AnimationCurveContainer ScaleCurve;
+        private bool _loggedInvalidScale;
+
+        /// <summary>
+        /// Number of times <see cref="EvaluateScale"/> rejected a non-finite or
+        /// non-positive curve result. A wrapped or invalid scale is what let the tile
+        /// cover explode to hundreds of tiles, so this stays observable rather than
+        /// being silently corrected.
+        /// </summary>
+        public int InvalidScaleRejectionCount { get; private set; }
 
         public override float Scale
         {
-            get => _initialScale * ScaleCurve.Evaluate(Zoom);
+            get => EvaluateScale(Zoom);
             protected set => _scale = value;
         }
         
@@ -41,7 +50,7 @@ namespace Mapbox.BaseModule.Map
             _initialScale = _scale;
             if (_useDynamicScaling)
             {
-                Scale = _initialScale * ScaleCurve.Evaluate(Zoom);
+                Scale = EvaluateScale(Zoom);
             }
             _isInitialized = true;
         }
@@ -58,7 +67,30 @@ namespace Mapbox.BaseModule.Map
             }
         }
 
+        public override float GetScaleFor(float zoomValue) => Scale = EvaluateScale(zoomValue);
 
-        public override float GetScaleFor(float zoomValue) => Scale = _initialScale * ScaleCurve.Evaluate(zoomValue);
+        private float EvaluateScale(float zoomValue)
+        {
+            if (!_useDynamicScaling || ScaleCurve == null)
+            {
+                return _scale;
+            }
+
+            float scale = _initialScale * ScaleCurve.EvaluateClamped(zoomValue);
+            if (float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0f)
+            {
+                InvalidScaleRejectionCount++;
+                if (!_loggedInvalidScale)
+                {
+                    _loggedInvalidScale = true;
+                    Debug.LogWarning(
+                        $"DynamicScalingMapInformation: rejected scale {scale} for zoom {zoomValue} (initialScale={_initialScale}); keeping the last valid scale. Further rejections are counted in InvalidScaleRejectionCount.");
+                }
+
+                return _scale > 0f ? _scale : Mathf.Max(_initialScale, 0.0001f);
+            }
+
+            return scale;
+        }
     }
 }

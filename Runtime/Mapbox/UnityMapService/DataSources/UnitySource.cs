@@ -34,7 +34,7 @@ namespace Mapbox.UnityMapService.DataSources
         private readonly DataFetchingManager _dataFetchingManager;
         private readonly MapboxCacheManager _cacheManager;
         private IAsyncRequest _tileJsonRequest;
-        private Dictionary<CanonicalTileId, FetchInfo> _activeRequests;
+        private Dictionary<FetchRequestKey, FetchInfo> _activeRequests;
         private Dictionary<CanonicalTileId, List<TaskWrapper>> _activeTasks;
 
         protected UnitySource(DataFetchingManager dataFetchingManager, MapboxCacheManager cacheManager, string tilesetId)
@@ -43,7 +43,7 @@ namespace Mapbox.UnityMapService.DataSources
             _tilesetId = tilesetId;
             _dataFetchingManager = dataFetchingManager;
             _cacheManager = cacheManager;
-            _activeRequests = new Dictionary<CanonicalTileId, FetchInfo>();
+            _activeRequests = new Dictionary<FetchRequestKey, FetchInfo>();
             _sourceZoomRange = new[] {0, 22};
         }
         
@@ -74,8 +74,13 @@ namespace Mapbox.UnityMapService.DataSources
             }
         }
 
-        protected void WebRequestData(Tile tile, Action<DataFetchingResult> callback) => RequestData(tile, callback, false);
-        protected void WebRequestUpdate(Tile tile, Action<DataFetchingResult> callback) => RequestData(tile, callback, true);
+        protected void WebRequestData(
+            Tile tile,
+            Action<DataFetchingResult> callback,
+            double? priority = null) =>
+            RequestData(tile, callback, false, priority);
+        protected void WebRequestUpdate(Tile tile, Action<DataFetchingResult> callback) =>
+            RequestData(tile, callback, true, null);
         
         /// <summary>
         /// Enqueues a fetch for the tile. The callback is invoked exactly once, always - that is
@@ -88,33 +93,77 @@ namespace Mapbox.UnityMapService.DataSources
         /// ever" and left those coroutines spinning for the rest of the session - and with them
         /// LoadTileCoverToMemory, and so LoadViewCompleted, which never fired.
         ///
-        /// Note the join is keyed on tile id alone, so a conditional-GET refresh (WebRequestUpdate)
-        /// and a real data fetch (WebRequestData) collide and whichever arrived first wins. The
-        /// joiner is handed a result for a tile instance it does not own, so it will see its own
-        /// tile as unloaded and report no data - correct, if pessimistic, and it can request again.
+        /// FORK yiiportal: the join is keyed on tile id and tileset id, and a joining request with a
+        /// priority re-prioritises the queued fetch. A conditional-GET refresh (WebRequestUpdate)
+        /// and a real data fetch (WebRequestData) for the same key still collide and whichever
+        /// arrived first wins. The joiner is handed a result for a tile instance it does not own, so
+        /// it will see its own tile as unloaded and report no data - correct, if pessimistic, and it
+        /// can request again.
         /// </summary>
-        private void RequestData(Tile tile, Action<DataFetchingResult> callback, bool isUpdate)
+        private void RequestData(
+            Tile tile,
+            Action<DataFetchingResult> callback,
+            bool isUpdate,
+            double? priority)
         {
-            if (_activeRequests.TryGetValue(tile.Id, out var inFlight))
+            var requestKey = new FetchRequestKey(tile.Id, tile.TilesetId);
+            if (_activeRequests.TryGetValue(requestKey, out var inFlight))
             {
                 inFlight.Callback += callback;
+                if (priority.HasValue)
+                {
+                    _dataFetchingManager.SetRequestPriority(
+                        inFlight,
+                        priority.Value);
+                }
+
                 return;
             }
 
-            var fetchInfo = new FetchInfo(tile, (result) =>
+            FetchInfo fetchInfo = null;
+            fetchInfo = new FetchInfo(tile, (result) =>
             {
-                _activeRequests.Remove(tile.Id);
+                if (_activeRequests.TryGetValue(requestKey, out var activeRequest) &&
+                    ReferenceEquals(activeRequest, fetchInfo))
+                {
+                    _activeRequests.Remove(requestKey);
+                }
+
                 callback(result);
             });
             fetchInfo.IsUpdate = isUpdate;
-            _activeRequests.Add(tile.Id, fetchInfo);
+            if (priority.HasValue)
+            {
+                _dataFetchingManager.SetRequestPriority(
+                    fetchInfo,
+                    priority.Value);
+            }
+            _activeRequests.Add(requestKey, fetchInfo);
             _dataFetchingManager.EnqueueForFetching(fetchInfo);
+        }
+
+        protected void SetWebRequestPriority(
+            CanonicalTileId tileId,
+            string tilesetId,
+            double priority)
+        {
+            var requestKey = new FetchRequestKey(tileId, tilesetId);
+            if (_activeRequests.TryGetValue(requestKey, out var request))
+            {
+                _dataFetchingManager.SetRequestPriority(request, priority);
+            }
         }
 		
         protected void CancelFetching(Tile tile, string tilesetId)
         {
             tile.Cancel();
             _cacheManager.CancelFetching(tile.Id, tilesetId);
+            var requestKey = new FetchRequestKey(tile.Id, tilesetId);
+            if (_activeRequests.TryGetValue(requestKey, out var activeRequest) &&
+                ReferenceEquals(activeRequest.Tile, tile))
+            {
+                _activeRequests.Remove(requestKey);
+            }
             //we removed data fetching cancel here as data fetching now track
             //removal through the tile.Cancel
             //no further calls are necessary
@@ -127,6 +176,46 @@ namespace Mapbox.UnityMapService.DataSources
                     task.Cancel();
                 }
                 _activeTasks.Remove(tile.Id);
+            }
+        }
+
+        protected void CancelAllActiveRequests()
+        {
+            var activeRequests = new List<FetchInfo>(_activeRequests.Values);
+            foreach (var activeRequest in activeRequests)
+            {
+                CancelFetching(activeRequest.Tile, activeRequest.Tile.TilesetId);
+            }
+        }
+
+        private readonly struct FetchRequestKey : IEquatable<FetchRequestKey>
+        {
+            private readonly CanonicalTileId _tileId;
+            private readonly string _tilesetId;
+
+            public FetchRequestKey(CanonicalTileId tileId, string tilesetId)
+            {
+                _tileId = tileId;
+                _tilesetId = tilesetId;
+            }
+
+            public bool Equals(FetchRequestKey other)
+            {
+                return _tileId.Equals(other._tileId) &&
+                       string.Equals(_tilesetId, other._tilesetId, StringComparison.Ordinal);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is FetchRequestKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    return (_tileId.GetHashCode() * 397) ^ (_tilesetId?.GetHashCode() ?? 0);
+                }
             }
         }
 

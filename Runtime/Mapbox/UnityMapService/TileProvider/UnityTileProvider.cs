@@ -60,6 +60,14 @@ namespace Mapbox.UnityMapService.TileProviders
 		[Tooltip("Pre-loads tiles beyond screen edges to reduce pop-in during panning. Value is in Unity world units — scale relative to the tile size at your map's current Scale. Set to 0 to disable.")]
 		public float FrustumBuffer = 0f;
 
+		/// <summary>
+		/// Maximum number of tiles in the applied cover. When a candidate exceeds this
+		/// limit, the provider recomputes a complete cover at a lower maximum detail
+		/// level. Zero disables the budget.
+		/// </summary>
+		[Tooltip("Maximum tiles in the applied cover. The provider lowers detail to preserve a complete, gap-free cover. Set to 0 for unlimited.")]
+		public int MaximumTileCount;
+
 		public UnityTileProviderSettings(Camera cam, float minZoom = 2, float maxZoom = 22)
 		{
 			Camera = cam;
@@ -86,9 +94,21 @@ namespace Mapbox.UnityMapService.TileProviders
 		protected TileNode[] _pool;
 		protected int _poolCount;
 		protected readonly Stack<int> _stack;
+		private bool _loggedTileBudgetApplied;
+		private int _loggedAppliedMaximumZoom = -1;
+		private readonly TileCover _recoveryProbeCover = new TileCover();
+		private bool _hasAppliedCover;
+		private int _coverRecoveryHeadroomCount;
+		private const float CoverRecoveryHeadroomRatio = 0.75f;
+		private const int CoverRecoveryStableSampleCount = 30;
 
 		// Reusable array for 4 bottom-plane corners to avoid per-frame allocation
 		protected readonly Vector3[] _corners = new Vector3[4];
+
+		public bool WasTileBudgetApplied { get; private set; }
+		public int LastRequestedMaximumZoom { get; private set; }
+		public int LastAppliedMaximumZoom { get; private set; }
+		public int LastAppliedTileCount { get; private set; }
 
 		public UnityTileProvider(UnityTileProviderSettings settings)
 		{
@@ -119,6 +139,130 @@ namespace Mapbox.UnityMapService.TileProviders
 
 		public override bool GetTileCover(IMapInformation mapInformation, TileCover tileCover)
 		{
+			var previousRequestedMaximumZoom = LastRequestedMaximumZoom;
+			var requestedMaximumZoom = Mathf.Max(
+				0,
+				(int)Mathf.Min(
+					30f,
+					Mathf.Min(Settings.MaximumZoomLevel, mapInformation.AbsoluteZoom)));
+			var minimumMaximumZoom = Mathf.Clamp(
+				Mathf.CeilToInt(Settings.MinimumZoomLevel),
+				0,
+				requestedMaximumZoom);
+			var tileBudget = Settings.MaximumTileCount > 0
+				? Mathf.Max(4, Settings.MaximumTileCount)
+				: 0;
+
+			LastRequestedMaximumZoom = requestedMaximumZoom;
+			WasTileBudgetApplied = false;
+
+			var startMaximumZoom = requestedMaximumZoom;
+			if (tileBudget > 0 && _hasAppliedCover)
+			{
+				var requestedZoomDelta =
+					requestedMaximumZoom - previousRequestedMaximumZoom;
+				startMaximumZoom = Mathf.Clamp(
+					LastAppliedMaximumZoom + requestedZoomDelta,
+					minimumMaximumZoom,
+					requestedMaximumZoom);
+			}
+
+			if (tileBudget == 0)
+			{
+				_coverRecoveryHeadroomCount = 0;
+			}
+
+			for (var maximumZoom = startMaximumZoom;
+			     maximumZoom >= minimumMaximumZoom;
+			     maximumZoom--)
+			{
+				if (!BuildTileCover(mapInformation, tileCover, maximumZoom, tileBudget))
+				{
+					_coverRecoveryHeadroomCount = 0;
+					continue;
+				}
+
+				var appliedMaximumZoom = TryRecoverCoverDetail(
+					mapInformation,
+					tileCover,
+					maximumZoom,
+					requestedMaximumZoom,
+					tileBudget);
+				ApplyCoverResult(
+					tileCover,
+					requestedMaximumZoom,
+					appliedMaximumZoom,
+					tileBudget);
+				return true;
+			}
+
+			BuildTileCover(mapInformation, tileCover, minimumMaximumZoom, 0);
+			ApplyCoverResult(tileCover, requestedMaximumZoom, minimumMaximumZoom, tileBudget);
+			return true;
+		}
+
+		private int TryRecoverCoverDetail(
+			IMapInformation mapInformation,
+			TileCover tileCover,
+			int appliedMaximumZoom,
+			int requestedMaximumZoom,
+			int tileBudget)
+		{
+			if (tileBudget <= 0 || appliedMaximumZoom >= requestedMaximumZoom)
+			{
+				_coverRecoveryHeadroomCount = 0;
+				return appliedMaximumZoom;
+			}
+
+			var recoveryThreshold = Mathf.FloorToInt(
+				tileBudget * CoverRecoveryHeadroomRatio);
+			if (tileCover.Tiles.Count > recoveryThreshold)
+			{
+				_coverRecoveryHeadroomCount = 0;
+				return appliedMaximumZoom;
+			}
+
+			if (++_coverRecoveryHeadroomCount <
+			    CoverRecoveryStableSampleCount)
+			{
+				return appliedMaximumZoom;
+			}
+
+			_coverRecoveryHeadroomCount = 0;
+			var recoveryZoom = appliedMaximumZoom + 1;
+			if (!BuildTileCover(
+				    mapInformation,
+				    _recoveryProbeCover,
+				    recoveryZoom,
+				    tileBudget))
+			{
+				return appliedMaximumZoom;
+			}
+
+			tileCover.Tiles.Clear();
+			tileCover.Tiles.UnionWith(_recoveryProbeCover.Tiles);
+			return recoveryZoom;
+		}
+
+		private void ApplyCoverResult(
+			TileCover tileCover,
+			int requestedMaximumZoom,
+			int appliedMaximumZoom,
+			int tileBudget)
+		{
+			LastAppliedMaximumZoom = appliedMaximumZoom;
+			LastAppliedTileCount = tileCover.Tiles.Count;
+			WasTileBudgetApplied = appliedMaximumZoom < requestedMaximumZoom;
+			_hasAppliedCover = true;
+			LogTileBudgetTransition(tileBudget);
+		}
+
+		private bool BuildTileCover(
+			IMapInformation mapInformation,
+			TileCover tileCover,
+			int maximumZoom,
+			int tileBudget)
+		{
 			_poolCount = 0;
 			_stack.Clear();
 			tileCover.Tiles.Clear();
@@ -126,7 +270,7 @@ namespace Mapbox.UnityMapService.TileProviders
 			// Cap at 30: distToSplit uses (1 << (_maxZoom - zoom)), which overflows int
 			// past 30. Practically unreachable in Mercator (pyramid maxes around z22-24)
 			// but guards against Inspector misconfig of MaximumZoomLevel.
-			_maxZoom = (int)Mathf.Min(30f, Mathf.Min(Settings.MaximumZoomLevel, mapInformation.AbsoluteZoom));
+			_maxZoom = maximumZoom;
 			var cam = Settings.Camera;
 			GeometryUtility.CalculateFrustumPlanes(cam, _planes);
 
@@ -188,6 +332,10 @@ namespace Mapbox.UnityMapService.TileProviders
 				if (zoom >= _maxZoom || !ShouldSplit(zoom, node.Bounds, camPos, camForward, cameraHeight, zoomSplitDistance))
 				{
 					tileCover.Tiles.Add(node.Id);
+					if (tileBudget > 0 && tileCover.Tiles.Count > tileBudget)
+					{
+						return false;
+					}
 					continue;
 				}
 
@@ -207,11 +355,6 @@ namespace Mapbox.UnityMapService.TileProviders
 			return true;
 		}
 
-		// Cap for the projDist<=0 "always split" early-exit. Without a cap, a single
-		// behind-camera corner (admissible after FrustumBuffer expansion) forces 4-way
-		// subdivision recursively up to _maxZoom — pathologically expensive on tilted
-		// views where many tiles are partially behind the near plane. 18 is generous
-		// enough for any reasonable detail level.
 		private const int AlwaysSplitSafeCap = 18;
 
 		protected bool ShouldSplit(int zoom, Bounds bounds, Vector3 camPos,
@@ -243,12 +386,9 @@ namespace Mapbox.UnityMapService.TileProviders
 				var projDist = Vector3.Dot(offset, camForward);
 				if (projDist <= 0f)
 				{
-					// Corner behind camera plane — split for better fidelity on the
-					// partly-visible portion, but cap so we don't recurse all the way
-					// to _maxZoom (the FrustumBuffer expansion admits behind-camera
-					// tiles, which would otherwise feed an endless split loop).
 					return zoom < AlwaysSplitSafeCap;
 				}
+
 				if (projDist < closestDist)
 					closestDist = projDist;
 			}
@@ -260,6 +400,28 @@ namespace Mapbox.UnityMapService.TileProviders
 			distToSplit *= DistToSplitScale(cameraHeight, closestDist);
 
 			return closestDist < distToSplit;
+		}
+
+		private void LogTileBudgetTransition(int tileBudget)
+		{
+			if (_loggedTileBudgetApplied == WasTileBudgetApplied &&
+			    _loggedAppliedMaximumZoom == LastAppliedMaximumZoom)
+			{
+				return;
+			}
+
+			_loggedTileBudgetApplied = WasTileBudgetApplied;
+			_loggedAppliedMaximumZoom = LastAppliedMaximumZoom;
+			if (WasTileBudgetApplied)
+			{
+				Debug.LogWarning(
+					$"UnityTileProvider: cover budget applied budget={tileBudget}, requestedMaxZoom={LastRequestedMaximumZoom}, appliedMaxZoom={LastAppliedMaximumZoom}, tiles={LastAppliedTileCount}.");
+			}
+			else if (tileBudget > 0)
+			{
+				Debug.Log(
+					$"UnityTileProvider: cover returned within budget budget={tileBudget}, maxZoom={LastAppliedMaximumZoom}, tiles={LastAppliedTileCount}.");
+			}
 		}
 
 		/// <summary>
