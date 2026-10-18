@@ -102,8 +102,21 @@ namespace Mapbox.LandmarksModule
 		// has just cleared and raising TileFinished for a tile that will never be disposed.
 		private bool _destroyed;
 
+		private static readonly HashSet<CanonicalTileId> NoTiles = new HashSet<CanonicalTileId>();
+
+		/// <summary>
+		/// FORK yiiportal: while set, tiles already built stay visible but nothing new is fetched or
+		/// decoded. Used for thermal pressure and backgrounding.
+		/// </summary>
+		public bool SuspendNewLoads { get; set; }
+
+		private readonly Predicate<CanonicalTileId> _isUnresolved;
+
+		/// <param name="dataCacheSize">FORK yiiportal: how many landmark tiles outside the current
+		/// cover stay resident. Evicting a tile's data is what releases its visuals, so this is the
+		/// landmark residency budget on top of the retained cover.</param>
 		public LandmarksLayerModule(UnityContext unityContext, IMapInformation mapInformation, MapService mapService,
-			string sourceId, Material buildingMaterial) : base()
+			string sourceId, Material buildingMaterial, int dataCacheSize = 100) : base()
 		{
 			_unityContext = unityContext;
 			_mapInformation = mapInformation;
@@ -112,7 +125,8 @@ namespace Mapbox.LandmarksModule
 			_failedAttempts = new Dictionary<CanonicalTileId, int>();
 			_unbuildableTiles = new HashSet<CanonicalTileId>();
 			_disposedWhileGenerating = new HashSet<CanonicalTileId>();
-			_buildingSource = mapService.GetBuildingSource(new VectorSourceSettings() { TilesetId = sourceId });
+			_isUnresolved = tileId => !IsResolved(tileId);
+			_buildingSource = mapService.GetBuildingSource(new VectorSourceSettings() { TilesetId = sourceId, CacheSize = dataCacheSize });
 			_buildingSource.CacheItemDisposed += ClearDisposedDataVisual;
 			_meshGenerationUnit = new GltfVisualizer(_unityContext, _mapInformation, buildingMaterial);
 		}
@@ -184,6 +198,14 @@ namespace Mapbox.LandmarksModule
 		public virtual bool RetainTiles(HashSet<CanonicalTileId> retainedTiles)
 		{
 			UpdateRetainedList(retainedTiles);
+			if (SuspendNewLoads)
+			{
+				_retainedBuildingTiles.RemoveWhere(_isUnresolved);
+			}
+
+			// FORK yiiportal: upstream only cancels a decode when the tile's data is evicted; a
+			// tile that merely left the cover kept decoding and was hidden on arrival.
+			_meshGenerationUnit.CancelAllExcept(_retainedBuildingTiles);
 
 			var isReady = _buildingSource.RetainTiles(_retainedBuildingTiles);
 
@@ -214,6 +236,17 @@ namespace Mapbox.LandmarksModule
 			// terrain was first sampled - visibly wrong after one zoom step under
 			// DynamicScalingMapInformation, where Scale tracks zoom.
 			_terrainSnapper?.ReapplyForViewChange();
+		}
+
+		/// <summary>
+		/// FORK yiiportal: drops every landmark tile - visible or not - and its visuals, e.g. on a
+		/// memory warning. Data stays in the file cache, so tiles come back from disk on the next
+		/// RetainTiles that wants them.
+		/// </summary>
+		public void ReleaseAll()
+		{
+			RetainTiles(NoTiles);
+			_buildingSource.ClearInactiveData();
 		}
 
 		public void OnDestroy()

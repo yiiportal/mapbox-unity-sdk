@@ -19,6 +19,13 @@ namespace Mapbox.UnityMapService.DataSources
         private TypeMemoryCache<T> _memoryCache;
         private HashSet<CanonicalTileId> _activeRequestsToCancel;
 
+        // FORK yiiportal: RetainTiles runs on every ChangeView, and a tile whose fetch failed
+        // caches nothing, so without this a persistently failing tile (bad token scope, outage)
+        // is re-requested every frame while the camera moves.
+        private const float MinRetryDelaySeconds = 2f;
+        private const float MaxRetryDelaySeconds = 60f;
+        private readonly Dictionary<CanonicalTileId, (float RetryAt, float Delay)> _failureBackoff = new();
+
         protected PbfSource(DataFetchingManager dataFetchingManager, MapboxCacheManager cacheManager, VectorSourceSettings settings) : base(dataFetchingManager, cacheManager, settings.TilesetId)
         {
             _waitingList = new Dictionary<CanonicalTileId, Tile>();
@@ -53,7 +60,7 @@ namespace Mapbox.UnityMapService.DataSources
         {
             foreach (var id in retainedTiles)
             {
-                if (CheckInstantData(id)) continue;
+                if (CheckInstantData(id) || IsBackingOff(id)) continue;
                 
                 LoadTileCore(id);
             }
@@ -90,6 +97,11 @@ namespace Mapbox.UnityMapService.DataSources
             }
         }
         
+        public override void ClearInactiveData()
+        {
+            _memoryCache.ClearInactive();
+        }
+
         public virtual void ClearMemoryCache()
         {
             _memoryCache.OnDestroy();
@@ -247,6 +259,7 @@ namespace Mapbox.UnityMapService.DataSources
                 {
                     _waitingList.Remove(dataTile.Id);
                 }
+                RecordFetchOutcome(dataTile, resultDataItem != null);
                 callback?.Invoke(resultDataItem);
             });
         }
@@ -316,6 +329,31 @@ namespace Mapbox.UnityMapService.DataSources
             }
         }
         
+        private bool IsBackingOff(CanonicalTileId tileId)
+        {
+            return _failureBackoff.TryGetValue(tileId, out var backoff) &&
+                   Time.realtimeSinceStartup < backoff.RetryAt;
+        }
+
+        private void RecordFetchOutcome(ByteArrayTile tile, bool succeeded)
+        {
+            if (succeeded)
+            {
+                _failureBackoff.Remove(tile.Id);
+                return;
+            }
+
+            if (tile.CurrentTileState == TileState.Canceled)
+            {
+                return;
+            }
+
+            var delay = _failureBackoff.TryGetValue(tile.Id, out var previous)
+                ? Mathf.Min(previous.Delay * 2f, MaxRetryDelaySeconds)
+                : MinRetryDelaySeconds;
+            _failureBackoff[tile.Id] = (Time.realtimeSinceStartup + delay, delay);
+        }
+
         protected bool IsInProgress(CanonicalTileId requestedDataTileId)
         {
             return _waitingList.ContainsKey(requestedDataTileId) || IsActiveRequest(requestedDataTileId);

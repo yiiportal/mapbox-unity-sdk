@@ -45,6 +45,30 @@ namespace Mapbox.LandmarksModule
 
         public bool IsInWork(CanonicalTileId tileId) { return _activeLoads.ContainsKey(tileId); }
 
+        private readonly List<CanonicalTileId> _loadsToCancel = new List<CanonicalTileId>();
+
+        /// <summary>
+        /// FORK yiiportal: abandons every running load whose tile is not in
+        /// <paramref name="keep"/>. Keys are copied first because cancellation callbacks may run
+        /// synchronously and unwind a load out of the dictionary.
+        /// </summary>
+        public void CancelAllExcept(HashSet<CanonicalTileId> keep)
+        {
+            _loadsToCancel.Clear();
+            foreach (var tileId in _activeLoads.Keys)
+            {
+                if (!keep.Contains(tileId))
+                {
+                    _loadsToCancel.Add(tileId);
+                }
+            }
+
+            foreach (var tileId in _loadsToCancel)
+            {
+                Cancel(tileId);
+            }
+        }
+
         /// <summary>
         /// Abandons the load for one tile, if one is running. The call returns immediately; the
         /// load unwinds on its own and reports <see cref="TaskResultType.Cancelled"/>, having

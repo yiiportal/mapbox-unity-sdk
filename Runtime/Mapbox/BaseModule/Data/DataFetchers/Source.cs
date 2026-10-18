@@ -64,6 +64,12 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 		{
 			
 		}
+
+		/// <summary>
+		/// FORK yiiportal: drops every cached item that is not currently retained, e.g. on a memory
+		/// warning. Retained items are untouched.
+		/// </summary>
+		public virtual void ClearInactiveData() { }
 		
 		//move this to imageSource after merging imagery&terrain modules
 		public virtual void DownloadAndCacheBaseTiles() { }
