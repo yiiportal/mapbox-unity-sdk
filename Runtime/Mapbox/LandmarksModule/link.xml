@@ -1,0 +1,15 @@
+<linker>
+  <!--
+    FORK yiiportal: landmark tiles are glTF parsed with Newtonsoft, which builds the schema types
+    below by reflection. IL2CPP code stripping cannot see those constructions and removes the
+    constructors and fields, so tiles fail to parse on device while the Editor works. Keep the
+    landmark schema and glTFast's Newtonsoft schema, plus the base schema types they extend.
+  -->
+  <assembly fullname="MapboxLandmarksModule">
+    <namespace fullname="Mapbox.LandmarksModule.FeatureId.Schema" preserve="all"/>
+  </assembly>
+  <assembly fullname="glTFast.Newtonsoft" preserve="all"/>
+  <assembly fullname="glTFast">
+    <namespace fullname="GLTFast.Schema" preserve="all"/>
+  </assembly>
+</linker>

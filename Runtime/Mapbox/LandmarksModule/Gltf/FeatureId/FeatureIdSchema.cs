@@ -21,6 +21,12 @@ namespace Mapbox.LandmarksModule.FeatureId.Schema
     {
         [JsonExtensionData]
         public IDictionary<string, JToken> AdditionalAttributes;
+
+        // FORK yiiportal: Newtonsoft creates this by reflection; without an explicit preserved
+        // constructor IL2CPP strips the implicit one and every landmark tile fails to parse on
+        // device ("Unable to find a constructor to use for type FeatureIdAttributes").
+        [Preserve]
+        public FeatureIdAttributes() {}
     }
 
     /// <summary>
