@@ -1,4 +1,3 @@
-#if UNITY_EDITOR || YIIPORTAL_LANDMARK_SOURCE_A
 using System;
 using System.Collections;
 using System.Threading.Tasks;
@@ -154,4 +153,3 @@ namespace Mapbox.LandmarksModule
         }
     }
 }
-#endif
