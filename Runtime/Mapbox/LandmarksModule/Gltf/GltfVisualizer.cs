@@ -472,6 +472,7 @@ namespace Mapbox.LandmarksModule
                         _footprintsById.TryGetValue(anchor.LandmarkId, out var rings))
                     {
                         anchor.FootprintUvs = ToGroundUvs(rings);
+                        anchor.FootprintRings = ToGroundRings(rings);
                     }
 
                     AnchorResults.Add(anchor);
@@ -505,6 +506,27 @@ namespace Mapbox.LandmarksModule
                 }
 
                 return result;
+            }
+
+            private static Vector2[][] ToGroundRings(List<Vector3[]> rings)
+            {
+                if (rings == null || rings.Count == 0) return null;
+
+                var result = new List<Vector2[]>(rings.Count);
+                foreach (var ring in rings)
+                {
+                    if (ring == null || ring.Length < 3) continue;
+
+                    var converted = new Vector2[ring.Length];
+                    for (var vertex = 0; vertex < ring.Length; vertex++)
+                    {
+                        converted[vertex] = new Vector2(ring[vertex].x, 1f + ring[vertex].z);
+                    }
+
+                    result.Add(converted);
+                }
+
+                return result.Count == 0 ? null : result.ToArray();
             }
 
             /// <summary>

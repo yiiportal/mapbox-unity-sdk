@@ -46,6 +46,12 @@ namespace Mapbox.LandmarksModule
         public Vector2[] FootprintUvs;
 
         /// <summary>
+        /// Footprint rings in the same space as <see cref="FootprintUvs"/>. The flattened array
+        /// cannot support point-in-polygon tests because it loses ring boundaries.
+        /// </summary>
+        public Vector2[][] FootprintRings;
+
+        /// <summary>
         /// The tile's own id for this landmark, used to pair a building node with its footprint
         /// node. Both carry it, under different keys. Pairing by id rather than by list position
         /// matters because a footprint with a hole contributes more than one ring, which silently
