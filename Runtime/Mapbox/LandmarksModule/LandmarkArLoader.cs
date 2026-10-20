@@ -67,8 +67,29 @@ namespace Mapbox.LandmarksModule
                 return candidates;
             }
 
-            public GameObject ExtractForPrecheck(string landmarkId, Transform parent) =>
-                ExtractLandmark(Result, landmarkId, TileId, Latitude, parent, transferImport: false);
+            public GameObject ExtractForPrecheck(string landmarkId, Transform parent)
+            {
+                if (Result?.Anchors == null)
+                {
+                    Debug.LogWarning($"[LandmarkArLoader] Landmark '{landmarkId}' was not present in the loaded tile.");
+                    return null;
+                }
+
+                foreach (var anchor in Result.Anchors)
+                {
+                    if (anchor.Transform == null || anchor.LandmarkId != landmarkId)
+                    {
+                        continue;
+                    }
+
+                    Transform clonedTransform = UnityEngine.Object.Instantiate(anchor.Transform, parent, false);
+                    return ExtractTransform(
+                        clonedTransform, Result.Import, TileId, Latitude, parent, transferImport: false);
+                }
+
+                Debug.LogWarning($"[LandmarkArLoader] Landmark '{landmarkId}' was not present in the loaded tile.");
+                return null;
+            }
 
             public float TileEdgeMeters(double latitude) =>
                 Conversions.TileEdgeSizeInMercator(TileId) * Mathf.Cos((float)latitude * Mathf.Deg2Rad);
@@ -270,40 +291,57 @@ namespace Mapbox.LandmarksModule
                     continue;
                 }
 
-                var model = new GameObject("LandmarkArModel");
-                model.transform.SetParent(parent, false);
-                anchor.Transform.SetParent(model.transform, false);
-                anchor.Transform.localPosition = Vector3.zero;
-                anchor.Transform.localRotation = Quaternion.identity;
-                anchor.Transform.localScale = Vector3.one;
-
-                var tileSpaceBounds = CalculateBounds(model);
-                anchor.Transform.localPosition = new Vector3(
-                    -tileSpaceBounds.center.x,
-                    -tileSpaceBounds.min.y,
-                    -tileSpaceBounds.center.z);
-                var arModel = model.AddComponent<LandmarkArModel>();
-                float tileEdgeMeters = Conversions.TileEdgeSizeInMercator(tileId) *
-                    Mathf.Cos((float)latitude * Mathf.Deg2Rad);
-                model.transform.localScale = new Vector3(tileEdgeMeters, 1f, tileEdgeMeters);
-                var bounds = CalculateBounds(model);
-                float footprint = Mathf.Max(bounds.size.x, bounds.size.z);
-                arModel.HeightMeters = bounds.size.y;
-                arModel.FootprintMeters = footprint;
-                arModel.RendererCount = model.GetComponentsInChildren<Renderer>().Length;
-                float heightAtTableScale = bounds.size.y * (DefaultTableFootprintMeters / Mathf.Max(footprint, 0.001f));
-                arModel.TargetHeightMeters = Mathf.Clamp(heightAtTableScale, 0.1f, 2f);
+                GameObject extracted = ExtractTransform(
+                    anchor.Transform, result.Import, tileId, latitude, parent, transferImport);
                 if (transferImport)
                 {
-                    arModel.Import = result.Import;
                     result.Import = null;
                 }
 
-                return model;
+                return extracted;
             }
 
             Debug.LogWarning($"[LandmarkArLoader] Landmark '{landmarkId}' was not present in the loaded tile.");
             return null;
+        }
+
+        private static GameObject ExtractTransform(
+            Transform landmarkTransform,
+            MapboxGltfImport import,
+            CanonicalTileId tileId,
+            double latitude,
+            Transform parent,
+            bool transferImport)
+        {
+            var model = new GameObject("LandmarkArModel");
+            model.transform.SetParent(parent, false);
+            landmarkTransform.SetParent(model.transform, false);
+            landmarkTransform.localPosition = Vector3.zero;
+            landmarkTransform.localRotation = Quaternion.identity;
+            landmarkTransform.localScale = Vector3.one;
+
+            var tileSpaceBounds = CalculateBounds(model);
+            landmarkTransform.localPosition = new Vector3(
+                -tileSpaceBounds.center.x,
+                -tileSpaceBounds.min.y,
+                -tileSpaceBounds.center.z);
+            var arModel = model.AddComponent<LandmarkArModel>();
+            float tileEdgeMeters = Conversions.TileEdgeSizeInMercator(tileId) *
+                Mathf.Cos((float)latitude * Mathf.Deg2Rad);
+            model.transform.localScale = new Vector3(tileEdgeMeters, 1f, tileEdgeMeters);
+            var bounds = CalculateBounds(model);
+            float footprint = Mathf.Max(bounds.size.x, bounds.size.z);
+            arModel.HeightMeters = bounds.size.y;
+            arModel.FootprintMeters = footprint;
+            arModel.RendererCount = model.GetComponentsInChildren<Renderer>().Length;
+            float heightAtTableScale = bounds.size.y * (DefaultTableFootprintMeters / Mathf.Max(footprint, 0.001f));
+            arModel.TargetHeightMeters = Mathf.Clamp(heightAtTableScale, 0.1f, 2f);
+            if (transferImport)
+            {
+                arModel.Import = import;
+            }
+
+            return model;
         }
 
         private static bool ContainsPoint(Vector2[][] rings, Vector2 point)
