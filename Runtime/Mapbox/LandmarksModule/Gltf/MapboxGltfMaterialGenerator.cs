@@ -21,7 +21,9 @@ namespace Mapbox.LandmarksModule
 
         protected override Material GenerateDefaultMaterial(bool pointsSupport = false)
         {
-            return _buildingMaterial;
+            // glTFast keeps the default material in a static shared by every import in the
+            // process, and may modify it. Hand it a clone, never the project asset.
+            return GameObject.Instantiate(_buildingMaterial);
         }
 
         public override Material GenerateMaterial(MaterialBase gltfMaterial, IGltfReadable gltf,

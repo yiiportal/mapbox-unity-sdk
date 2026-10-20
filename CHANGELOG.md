@@ -1,35 +1,35 @@
 ## CHANGELOG
 
-### v3.2.0 (unreleased)
+### v3.2.0
 
-Minor-version bump per semver: adds a new Landmarks Module, shipping as **preview**, and traffic-aware routing in the Directions API. Alongside those, this release also carries correctness work across the tile pipeline, independent of any one feature module. That theme is results that told the caller less than they knew: callbacks that were never invoked, failures reported as successes, single values standing in for several different outcomes, and - in the removals below - public surfaces that advertised access to tile data they could never return.
+#### Highlights
+
+- **Landmarks Module (preview)**, new `MapboxLandmarksModule` assembly
+  - 3D landmark buildings from the Mapbox 3D Buildings tileset, rendered through glTFast.
+  - Basic buildings underneath are hidden automatically, in both the Vector and Components pipelines.
+  - Sits on elevated terrain; click-to-select with `LandmarkHighlightBehaviour`.
+  - Requires `com.unity.cloud.gltfast` and `com.unity.meshopt.decompress`. Without them the module is skipped, nothing else breaks.
+  - Preview: dynamic map scaling not supported, selection is whole-mesh. See `Documentation~/LandmarksModuleKnownGaps.md`.
+- **Three new samples**: `LandmarkDemo`, `LandmarkDemoWithVector`, `LandmarkTour`
+  - `LandmarkTour` flies the camera between famous landmarks.
+- **Traffic-aware routing**, Directions API
+  - `DirectionResource.Annotations` requests distance, duration, speed, congestion and max-speed per segment.
+  - `RoutingProfile.DrivingTraffic` profile; `CongestionLevel` buckets congestion for coloring.
+  - Directions demo draws the route colored by traffic.
+- **Minimap**, `Minimap.prefab` in the imagery module
+  - Drop under a Canvas, assign a map. Follows the map, a transform or a camera; rotates with the map bearing or a camera rig. Wired into the `LocationBasedGame` sample.
+  - Shows the map's imagery, terrain height, or a different style through a Data Only custom imagery layer.
+- **Custom imagery modes**, `CustomApiLayerModuleScript.Mode`
+  - `DataOnly` fetches without drawing; `DisplayNonBlocking` never delays a tile; `DataZoomOffset` fetches coarser tiles.
+- **Components module settings in the Inspector**: zoom range, data-level clamp and cache size, no subclass needed.
 
 #### Breaking changes
 
-**Bbox coordinate order:**
-- `BboxToVector2dBoundsConverter` (`Mapbox.BaseModule.Utilities.JsonConverters`, in `BboxToGeoCoordinateBoundsConverter.cs`) read a GeoJSON `bbox` array's four values into `LatitudeLongitudeBounds` in the wrong order. GeoJSON's documented order is `[min_lon, min_lat, max_lon, max_lat]`, and the converter is shared: it is the only thing that turns a `bbox` field into a `LatitudeLongitudeBounds` anywhere in the SDK. It now reads the pairs as `(lat, lon)` from each `(lon, lat)` slot correctly. **Breaking** for any caller reading `Bbox` off a `GeocodingApi.Feature` and depending on the previous (swapped) values — those values were wrong before this fix, so any code compensating for the swap now double-corrects and must be updated.
-
-#### New features
-
-Adds the Landmarks Module, shipping as **preview** in this release; see `Documentation~/LandmarksModuleKnownGaps.md` for what preview does not yet cover. The module fetches 3D landmark meshes from the Mapbox 3D Buildings tileset, with overlap suppression against both the Vector and Components building pipelines. Landmark types live in the `Mapbox.LandmarksModule` namespace, with the MonoBehaviour wrappers under `Mapbox.LandmarksModule.Unity`. glTFast is consumed as a normal package dependency rather than bundled, and two new hard dependencies are declared: `com.unity.cloud.gltfast` and `com.unity.meshopt.decompress`.
-
-#### Why the dependency shape matters
-
-Landmark tiles are glTF binaries whose buffer views are compressed with `EXT_meshopt_compression`, and the extension is listed in the tiles' `extensionsRequired`. glTFast logs an error and aborts the load when a required extension has no decoder available, so `com.unity.meshopt.decompress` is a hard requirement, not an optional accelerator.
-
-Feature IDs (`_FEATURE_ID_RGBA4444`) arrive in their own dedicated meshopt buffer view — roughly 7 KB compressed per tile — and are needed after glTFast has released its load-time buffers. Rather than patching glTFast to extend that buffer lifetime, the module decompresses that single buffer view directly from the tile bytes it already holds, using the same public meshoptimizer API glTFast itself calls. This duplicates none of glTFast's geometry decoding and keeps glTFast an unmodified package dependency.
-
-The decompressed bytes are held for the duration of scene instantiation and unpacked to `Color` exactly once, straight into each mesh's final vertex buffer. On a representative z14 tile that is about 430 KB held plus a single 1.7 MB color write, rather than materializing a `Color` array per primitive and copying it again to group by mesh.
-
-#### Terrain snapping
-
-Landmark buildings are now driven onto elevated terrain by writing their transform, rather than baking elevation into vertices at generation time. `LandmarkTerrainSnapper`, owned by `LandmarksLayerModule`, samples terrain height per building and writes it as a local Y on the building's transform; a building generated before its terrain tile has arrived is corrected the moment terrain does land, at the cost of one assignment. Compare this to what happens to vector features today: `SnapTerrainModifier` bakes elevation into `MeshData` once, at generation time, and nothing ever re-snaps, so a vector building generated a frame too early stays at sea level on a hillside for the rest of the session.
-
-Elevation is cached in metres rather than in Unity units, so a map scale change - which happens on every zoom step under `DynamicScalingMapInformation` - only changes the divisor used to convert metres to Unity Y, and needs no re-sampling of terrain at all. Only terrain actually arriving triggers a re-query, and then only for buildings that don't already have a reading.
-
-A building snaps to the lowest point sampled across its footprint, not the point under its centre, so it beds into a slope the way a real foundation does: snapping to the centre height would leave the downhill edge floating above the terrain on any slope. It falls back to the anchor point when a tile published no footprint for that landmark.
-
-The `LandmarkTour` sample's `MapFlightController` gained crossfaded climb, cruise, and descend phases in the same pass, so the camera never comes to a full stop between them while flying between landmarks.
+- `Bbox` on `GeocodingApi.Feature` now carries latitude and longitude in the correct order. Code that compensated for the swapped values must drop that workaround.
+- `ILayerModule.Initialize` takes an `ITileLifecycleSource` parameter, and `ITileLifecycleObserver` is removed. Affects custom modules and subclasses that override `Initialize`.
+- `CanonicalTileId.ParentAt` no longer modifies the tile it is called on. Use `MoveToParent()` if you relied on that.
+- `VectorData.VectorTileData` is removed. Subclasses that read it after `MeshGeneration` should decode `Data` themselves.
+- Removed public members that never returned data: `ByteArrayTile.Data`, `LayerNames()`, `GetLayer()`, `SetVectorFromCache()` and `Dispose(bool)`; `Source<T>.DataFetched`, `DataFetchedWithCallback`, `FetchingError` and `SetMeshGenerationMethod`; `TileErrorEventArgs`; `UnityTileVectorContainer` and `UnityMapTile.VectorContainer`.
 
 #### Security
 
@@ -37,206 +37,71 @@ The `LandmarkTour` sample's `MapFlightController` gained crossfaded climb, cruis
 
 #### Fixed
 
-- Callbacks that were silently dropped, each of which could park a coroutine forever. `VectorLayerModule.CreateVisual` returned without invoking its callback when mesh generation for the tile was already in flight, leaving `CreateVisualCoroutine` spinning on `Runnable` for the rest of the session and hanging `LoadTileCoverToMemory` with it, so `LoadViewCompleted` never fired. `UnitySource.RequestData` did the same for a tile id already being fetched; a second request now joins the in-flight fetch and receives its real outcome.
-
-- Failed texture cache reads were delivered as ordinary cache items carrying a null `Texture`, indistinguishable from a hit. `MapboxCacheManager.GetImageAsync` already had the code to turn that into a miss, but `MapboxTileData.HasError` was never assigned anywhere in the SDK, so the branch was dead and the unusable item was cached as real - a permanently blank imagery tile, or a terrain tile stuck `Temporary` and re-polled every frame. `GetImageCoroutine` gained the same translation its async sibling already had.
-
-- `DataTaskWrapper` ignored both signals `TaskManager` gives it, so a cancelled task, a task that threw, and a genuine cache miss all arrived as an identical null result - which `ImageSource` then dereferenced. Its sibling `MeshGenTaskWrapper` already made the distinction.
-
-- Elevation queries could not express "I don't know". `QueryElevation` returned 0 for genuine sea level, for terrain not loaded yet, and for CPU elevation extraction being switched off. `TerrainLayerModule.GetElevationData` additionally dereferenced its loaded data without checking it, so a failed or cancelled terrain fetch threw inside the callback and the caller's own callback was never invoked at all.
-
-- `CompositeLayerModule.LoadTiles` called each child and discarded the returned `IEnumerator`. Every implementation is an iterator method, so no child module ever loaded anything and the composite reported itself finished immediately. `RetainTiles` likewise discarded each child's readiness and hardcoded `true`.
-
-- Area and building triangulation silently dropped features too large for the index buffer. The retry allocated a buffer of the same size, so a feature whose own triangulation exceeded it failed identically and was skipped without a message - visible as water disappearing in patches at low zoom, where a single coastline ring needs more indices than the pool provides.
-
-- `MapboxMapVisualizer` could show a tile and its own children simultaneously during a fast multi-level zoom-out, producing flickering coplanar geometry at the map centre. `DelveInto`'s filler-adoption branch hoisted an adopted tile's already-visible children instead of pooling them, and `ShowTiles` then repositioned and showed pass-through tiles that were meant to stay hidden.
-
-- Feature filters allocated on every feature of every tile, and threw on features missing the property they test. Filtering is pure overhead on top of the mesh work it gates, so the whole path is now allocation-free:
-  - `VectorFilterStack.Try` used LINQ `Any`/`All` with a lambda capturing the feature, so a closure, a delegate and an enumerator were allocated per feature. Index loops now, as `ComponentFilterStack` always had.
-  - `FeatureStringPropertyFilter` lowercased both the feature's value and its own filter string on every feature - three allocations per comparison - and indexed `Properties` directly, throwing `KeyNotFoundException` on any feature without the property; whole layers arrive with no tags at all. Compares with `StringComparison.OrdinalIgnoreCase` in place, and the `Contains` set uses an ordinal-ignore-case comparer.
-  - `FeatureNumberPropertyFilter` did `float.Parse(properties[name].ToString())`: a string allocation and a culture-dependent parse per feature, plus the same `KeyNotFoundException`. Unboxes the numeric types the decoder produces directly, and parses strings with the invariant culture.
-  - `HasPropertyFilter` dereferenced a null `Properties`.
-
-  A feature that lacks the property is now not a match, which for an inverting filter means it passes.
-
-- The custom imagery module's `Source Type` and `Custom Source Id` never reached the Inspector. `CustomApiLayerModuleScriptEditor` draws its fields by hand, and those two were not in the list, so choosing a Mapbox style through this module was not possible from the Editor at all - the dropdown existed on the class and nothing showed it. Both are drawn now, with the url fields shown only for source type `Custom`, since a Mapbox style needs no url.
-
-- The custom imagery module's `Source Type` dropdown did nothing, and every custom imagery layer shared one cache namespace. `CustomApiLayerModuleScript` resolved the chosen style into `Settings.DataSettings.TilesetId` and then built its source from a fresh `ImageSourceSettings` with a hardcoded `"CustomImagery"` id, discarding the resolved style along with the retina, cache-size and data-level-clamp settings next to it. So a custom imagery layer only worked with an explicit `UrlFormat`, picking `Mapbox Streets` had no effect, and two custom layers on different URLs collided in the cache because they keyed on the same name. `DataSettings` is now passed through, falling back to `"CustomImagery"` only when nothing resolved an id (source type `None`, or `Custom` with the id left empty) so the cache still has something to key on.
-
-- `ShiftMapForDistance` never recentred during normal walking. It compared each location fix with the previous one, and walking produces small steps that never reached `ShiftMapDistance`. The player drifted from the world origin for the whole session, accumulating float precision error. It now compares each fix with the map centre. Now that recentring fires, what it leaves behind matters: tiles reposition on a recenter, but nothing else in the scene does, so the player and camera rig were left an offset away and visibly walked back. The component gained `TransformsToShift` for the Inspector case, and the `OnRecentered` event listed under Added for everything spawned from code. The listed transforms are shifted *before* `ChangeView`, because the tile cover is built during that call and `TransformBasedTileProvider` reads its transform then. Shifted afterwards, the map would load tiles around a spot one offset away from the player. The shift also goes through `MapRoot`, because `ConvertLatLngToPosition` works in map-local space, so a moved or rotated `MapRoot` (an AR anchor, say) shifts world-space objects by the right amount.
-
-- Asking for a vector tileset the map did not carry failed silently, because `MapUnityService.GetVectorSource` returned one shared vector source per map and whoever called first fixed its tileset id and cache size for everyone after. A module asking for `mapbox-terrain-v2` after another had taken `mapbox-streets-v8` received a source that would never carry a layer it needed, with no error and its tileset id discarded. Sharing also meant two modules with different `ClampDataLevelToMax` or `RejectTilesOutsideZoom` fought over the source's single retained set on every `ChangeView`, each cancelling the other's in-flight requests and demoting its cache entries. `GetVectorSource` now returns a new source on every call, exactly as `GetBuildingSource` always has, and `VectorLayerModule` destroys its own source in `OnDestroy`. Every module fetches the tileset it asked for with the settings it asked for. The one map this costs is one running two vector modules on the same tileset, which now issues two requests and holds two cache entries per tile; a single module that wants layers from two tilesets still composes the ids into one comma-separated `TilesetId`, which the `VectorModuleSettingsDrawer`'s "Add Mapbox Streets V8" button does for it.
-
-- The Inspector's enable toggle on filters and modifiers did nothing. `FilterBaseObject`, `ScriptableMeshModifierObject` and `ScriptableGameObjectModifierObject` each carry an `m_Active` field that the filter- and modifier-stack Inspectors draw as a tickbox, and no runtime code read it - so an unticked filter still filtered and an unticked modifier still ran. Inactive entries are now dropped when the stack is built, which also costs nothing per feature. Empty slots in `GoModifiers` are dropped with them: `ModifierStack.RunGoModifiers` does not null-check, unlike its mesh counterpart.
-
-- `GeometryTypeFilter` could not match polygons by their multi-part name, and half its cases were unreachable. It switched on `GeometryType.ToString().ToLowerInvariant()` against GeoJSON-style names, but an MVT `GeomType` is only `UNKNOWN`, `POINT`, `LINESTRING` or `POLYGON` - multi-part geometry arrives as several rings on one feature, not as a distinct type - so the `multipolygon`, `multilinestring` and `multipoint` arms could never match. The first of those also had a space inside the case literal. Now switches on the enum, which drops a `ToString` plus `ToLowerInvariant` per feature as well.
-
-- `VectorFilterStack.Initialize()` was an empty body. The only code initializing filters was `ModifierStack.Initialize`, reaching in through the stack's `Filters` list, so a filter stack used without a modifier stack initialized none of its filters - and the reach-in dereferenced the list without a null check. The stack now initializes its own filters and the modifier stack asks it to.
-
-- One unready module stalled every module registered after it. `MapboxMapVisualizer.CreateTile` broke out of the module loop on the first `LoadInstant` returning false, and `CompositeLayerModule.LoadInstant` returned on it, so a module still waiting for data denied every later module its chance to progress on that tile - and because the loop restarts from the beginning on each update, it kept denying them for as long as it stayed unready. Both now offer the tile to every module and combine the answers, as `CompositeLayerModule.RetainTiles` already did. "I need more time" and "abort this tile" are no longer the same signal.
-
-- `Conversions.Tile01ToLatitudeLongitude(Vector2, CanonicalTileId)` mirrored longitude about the tile's centre meridian. It lerped `East → West` where its own forward function, `LatitudeLongitudeToInTile01`, places x=0 at West, so a round trip returned a point reflected by the full tile width - correct only at the tile centre, which is where both existing tests happened to sample. The `Vector3` overload was always right; it reads Unity tile space, a deliberately different convention now documented on both. No runtime code called the broken overload.
-
-- Negative integer feature properties were unreadable. `vector-tile-cs` reads every varint as unsigned, so an MVT `int_value` - a signed int64 - arrives boxed as `ulong` and a contour band 200 m below sea level read as 18446744073709551416 instead of -200. Both San Francisco and the Amazon ship those bands, so `Convert.ToInt32(properties["ele"])` returned garbage on real data. `VectorLayerVisualizer.GetFeature` now normalizes integers to `long` through `MvtProperties.NormalizeIntegers`, which allocates nothing for the common case of a feature carrying no unsigned value. The Components module's own reader already boxed these as `long` and is unchanged.
-
-- The Components module's serialized settings never reached its Inspector. `MapboxComponentsModuleScriptEditor` drew the visualizer list and its two buttons and never called `DrawDefaultInspector`, so `RejectTilesOutsideZoom`, `ClampDataLevelToMax` and `CacheSize` were invisible - subclassing remained the only way to change the zoom range, which is precisely what promoting them to serialized fields was meant to remove. The editor now enumerates the serialized properties rather than naming them, so a field added to the script appears without anyone remembering the editor file.
-
-- Landmarks did not reliably hide the basic OSM buildings they overlap. `GltfVisualizer` published each landmark footprint as the footprint mesh's raw vertex array, which is in storage order rather than boundary order, while every consumer — `MapboxGeometryUtilities.PolygonsIntersect` via both `LandmarkToBuildingComponentConnector` and `LandmarkPolygonFilterObject` — requires consecutive vertices to be adjacent along the outline. A four-vertex quad footprint survived that by luck; a detailed one described a self-intersecting scribble, so overlap tests against it were unreliable and some overlapping buildings stayed visible. Reported at the Eiffel Tower, whose footprint is exactly the detailed case.
-
-  Footprints are now published as true outlines. `MapboxGeometryUtilities.ExtractBoundaryRings` welds coincident positions (exporters split vertices for differing normals and UVs, and without welding every edge looks like a boundary edge), keeps the directed triangle edges whose reverse is absent, and walks them into ordered rings. A closed mesh has no boundary edge at all, so it falls back to the convex hull of the X-Z projection rather than contributing nothing.
-
-  Two related defects in the same method are fixed alongside. Footprints are now collected in `AddPrimitive` rather than `EndScene`, which means a footprint node with more than one primitive contributes all of them instead of only primitive 0, and a footprint node nested below a root node is collected instead of being missed entirely. `EndScene` now walks the node hierarchy to deactivate nested footprint geometry, while still normalising only root-level transforms — rewriting a child's transform would detach it from its parent's placement.
-
-- Every landmark tile leaked its meshes, materials and textures for the rest of the session. `GltfVisualizer` created a `MapboxGltfImport` per tile and dropped the reference, and disposing that import is the only thing that destroys what glTFast built for it - Unity reclaims a `Mesh`, `Material` or `Texture2D` only on a non-additive scene load, so destroying the tile's GameObjects left the whole PBR texture set resident. On iOS and Android, the only supported build targets, panning across a city was an unbounded climb toward an out-of-memory kill. The import now travels with the visuals it produced, on `GltfGenerationTaskResult.Import`, and is disposed by `LandmarksLayerModule` at the moment it destroys them - not earlier, since Dispose destroys the very meshes the live renderers are using.
-
-- A glTF load that finished after the map was torn down, or after its own tile's data had been evicted, was recorded as though nothing had happened. Generation cannot be cancelled, so the continuation resumed into a scene that no longer existed: it parented into a destroyed hierarchy, cached visuals into a dictionary `OnDestroy` had just cleared, and raised `TileFinished` for a tile that would never raise `TileDisposed` - leaving both overlap connectors suppressing vector and component buildings at that location permanently. Both the visualizer and the module now carry a destroyed flag checked after every await, the module records a tile whose data is disposed mid-load, and a result with nowhere to go is released on arrival instead of cached.
-
-- A landmark tile that failed to generate was retried forever. Nothing remembered a failure, so a tile absent from the visual cache and not in work looked exactly like one nobody had tried yet, and `DataProcessingFailure` additionally invalidated the cached bytes - which drops them from memory *and* disk, so the next sweep re-downloaded them. A genuinely malformed tile therefore re-downloaded, re-failed and logged an error on every sweep for the whole session. Generation is now capped at two attempts per tile, the second failure gives up and says so once, and the counters reset if the tile's data is re-fetched. `GameObjectFailure` no longer invalidates data that parsed correctly.
-
-- `GltfVisualizer.FlipYZ` read `matrix[0]`, `[5]`, `[12]` and `[13]` off a glTF node with no guard, and wrote a normal per vertex without checking there were any. glTF lets a node carry TRS instead of a matrix, and a primitive may have positions and no `NORMAL` attribute; either threw inside `AddPrimitive`, was swallowed by the catch in `Generate`, and blanked the entire tile. Both are guarded, and the matrix case warns rather than failing silently. `CaptureAnchor` had the matrix guard already - `FlipYZ` did not.
-
-- `EndScene` and `HideNestedFootprints` indexed glTFast's node dictionary directly. It only holds nodes glTFast actually materialised a GameObject for, and it is free not to materialise one, so a tile shaped that way threw `KeyNotFoundException`. Both use `TryGetValue` now, as `CaptureAnchor` already did.
-
-- Exceptions thrown by the generation result callback were lost. The callback runs outside `Generate`'s own try/catch by design, so anything it threw was captured into a `Task` that `GenerateVisualsForTile` discarded and `CreateVisualCoroutine` polled without ever reading `Exception` - and the coroutine's `Status` test treated a faulted task as finished, reporting success to the tile pipeline. Both paths now surface the fault.
-
-- `LandmarkToVectorConnector` never received the hardening its sibling connector did. It dereferenced all four of its Inspector fields unconditionally, so an unassigned one was a `NullReferenceException` in `Awake`, and it subscribed a closure to `Map.Initialized` that `OnDestroy` could not detach - `Initialized` is a plain `Action` field, so the closure kept the destroyed component alive and ran against it. It now warns and disables itself on a missing reference, subscribes a named method, and detaches it. `LandmarkHighlightBehaviour` had the same problem twice over and no `OnDestroy` at all, so a destroyed selection component carried on adding a `LandmarkComponent` and cooking a `MeshCollider` for every landmark that loaded.
-
-- Landmarks near a tile edge left basic buildings on the far side of the edge showing through them. Both overlap connectors store footprints per z14 tile and look a building up under its own z14 parent only, so a footprint has to be copied into a neighbouring tile for buildings there to be tested against it - and they copied it only when the footprint crossed the edge. That misses the common case. Vector tiles carry a buffer of roughly 1/64 of the tile past each edge, and `VectorLayerVisualizer` does not clip it, so the neighbouring tile's copy of a building straddling the edge is drawn slightly past its own edge, into the landmark's tile. A landmark wholly inside its tile but close to the edge overlaps that overhang and was tested against by nothing. Footprints are now replicated when they come within `LandmarksLayerModule.NeighbourReplicationMargin` (1/32 of a tile, twice the typical buffer) of an edge, in both `LandmarkPolygonFilter` and `LandmarkToBuildingComponentConnector`, which share the constant.
-
-  `LandmarkToVectorConnector` also never rebuilt the neighbours a footprint was replicated into. It reloaded ready vector tiles under the finishing landmark tile only, so a vector building already built next door kept overlapping even once the replica was in the filter. `LandmarkPolygonFilter.AddLandmarkPolygons` now returns every z14 tile whose polygon list it changed - the source tile plus each neighbour it replicated into - and the connector reloads ready tiles under any of them.
-
-  The same return value removes a waste in the common case. Most landmark tiles hold no footprints, yet the connector ran the reload loop regardless, destroying and regenerating every ready vector building tile in the area for no change. An empty result now returns before the vector module is touched.
-
-- `LandmarkHighlightBehaviour` threw `UnityException: CreateImpl is not allowed to be called from a MonoBehaviour constructor` as soon as a scene carrying it loaded. It created its `MaterialPropertyBlock` in a field initializer, which Unity runs during the MonoBehaviour's constructor, where engine objects may not be created. The block is now created in `Awake`.
-- Clicking a landmark did nothing when Active Input Handling was set to "Input System Package (New)", and the console filled with an `InvalidOperationException` every frame. `LandmarkHighlightBehaviour` read the mouse through the legacy `UnityEngine.Input` API, which throws under that setting even though `com.unity.inputsystem` is a package dependency. It now reads `Mouse.current` when `ENABLE_INPUT_SYSTEM` is defined, the same gate the example camera input uses, and treats a missing mouse as no click; `MapboxLandmarksModule` gained a reference to `Unity.InputSystem` for it.
-
-- A landmark module with no Base Material assigned fell through to `new Material(Shader.Find("Standard"))`. `Standard` is the built-in render pipeline's shader and this SDK requires URP, where `Shader.Find` returns null in a player build - so the fallback produced either a material with no shader or magenta geometry, and leaked one material per import. `LandmarksLayerModuleScript` now logs an error against the component, and the visualizer reports every tile as empty rather than throwing its way through the cover.
-
-- Importing the `LandmarkDemo` sample on its own gave a scene with missing materials. Its ground material and three road materials resolved to assets that live in the `MapboxComponents` sample, and Package Manager samples are imported individually - so the one sample the Quick Start tells a new user to import was the one that did not work alone. It now references its own copies, which were already in the folder and already used by its road style sheet; only the scene and the road preset pointed elsewhere.
-
-- `LandmarkDemoWithVector`'s building material carried a hidden HDRP `AssetVersion` sub-asset in a URP-only package, which logged a missing-script warning on import.
-
-- `GltfVisualizer.FlipYZ` recomputed a cosine for every vertex of every landmark. The height divisor is `Scale * cos(latitude)`, and both the map-information property reads and `Conversions.LatitudeElevationCompensation` sat inside the per-vertex loop, so a tile's worth of geometry paid one `Mathf.Cos` per vertex for a value that cannot change during the loop. Hoisted out.
-
-  The same method also allocated two managed arrays per primitive. glTFast builds each mesh as one interleaved vertex buffer, so reading `mesh.vertices` and `mesh.normals` deinterleaves each into a fresh array; it now fills lists reused across the tile's primitives through `GetVertices`/`GetNormals`. Bounds come from the same pass that rewrites the vertices rather than from a `RecalculateBounds` walk immediately after it, with both setters told not to recalculate.
-
-- Road materials in the `LandmarkDemo`, `LandmarkTour` and `MapboxComponents` samples referenced two textures that exist nowhere in the repository, so `_BaseMap`, `_MainTex` and `_MainTexture` pointed at missing assets. Roads already rendered untextured; the slots are now empty rather than dangling.
+- Map loading could stall, with `LoadViewCompleted` never firing, when a tile's fetch or mesh generation was already in progress.
+- Failed imagery and terrain cache reads were treated as valid tiles, producing blank imagery tiles and terrain tiles that never finished loading.
+- Cancelled or failed data tasks could cause a null reference in image sources.
+- A failed terrain fetch threw inside `TerrainLayerModule.GetElevationData` instead of reporting to the caller.
+- `CompositeLayerModule` did not load or retain its child modules.
+- Large polygons, such as coastlines at low zoom, were silently dropped, leaving holes in water.
+- Overlapping tiles flickered at the map centre during a fast zoom-out.
+- Feature filters threw on features that lacked the tested property. Such features are now treated as not matching. Filtering no longer allocates per feature.
+- Custom imagery module: `Source Type` and `Custom Source Id` were missing from the Inspector, the `Source Type` dropdown had no effect, and multiple custom layers shared one cache.
+- `ShiftMapForDistance` never recentred while walking.
+- Each vector module now has its own data source. A module requesting a different tileset than an earlier module no longer silently receives the earlier module's tileset. Two modules on the same tileset now fetch separately; where possible, combine layers into one module with a comma-separated `TilesetId`.
+- The enable toggle on filters and modifiers in the Inspector had no effect.
+- `GeometryTypeFilter` never matched multi-part geometry types.
+- A filter stack used without a modifier stack was never initialized.
+- One module waiting for data blocked every module registered after it on that tile.
+- `Conversions.Tile01ToLatitudeLongitude(Vector2, CanonicalTileId)` returned mirrored longitudes.
+- Negative integer feature properties, such as contour elevations below sea level, were read as large positive numbers.
+- The Editor could crash during map loads with imagery and vector buildings. SQLite cache access is now fully synchronized.
+- Buildings with collinear footprint corners got NaN vertices from the chamfer modifiers, reported by Unity as abnormal mesh bounds.
+- `RejectTilesOutsideZoom`, `ClampDataLevelToMax` and `CacheSize` on `MapboxComponentsModuleScript` are now editable in the Inspector.
+- Landmarks: every landmark tile leaked its meshes, materials and textures for the session.
+- Landmarks: overlapped basic buildings sometimes stayed visible, including across tile edges.
+- Landmarks: a tile that failed to generate was retried and re-downloaded indefinitely. Generation is now capped at two attempts.
+- Landmarks: loads finishing after the map was destroyed, or after their tile was evicted, caused errors and permanently hidden buildings.
+- Landmarks: unassigned Inspector references on the connector and highlight components threw instead of logging a warning.
+- Landmarks: tiles with unusual node or primitive layouts failed to load.
+- Landmarks: errors raised in generation callbacks were silently lost.
+- Landmarks: `LandmarkHighlightBehaviour` threw on scene load, and clicking did nothing under the new Input System.
+- Landmarks: a missing Base Material produced broken rendering instead of an error.
+- Samples: `LandmarkDemo` had missing materials when imported on its own; `LandmarkDemoWithVector` logged a missing-script warning; road materials in `LandmarkDemo`, `LandmarkTour` and `MapboxComponents` referenced textures that did not exist.
 
 #### Changed
 
-- `ILayerModule.Initialize` now takes an `ITileLifecycleSource`, replacing the separate `ITileLifecycleObserver` hook. A module previously had no reference to whatever was driving it - neither the constructor nor `ConstructModule` supplies one - so an extra opt-in interface existed purely to hand the visualizer over. **Breaking** for anyone implementing `ILayerModule` directly or subclassing an SDK module and overriding `Initialize`. Nothing here is serialized, so no scene or prefab data is affected.
-
-- `CanonicalTileId.ParentAt` no longer mutates the tile it is called on. It walked `this` up through `MoveToParent` and returned itself, so on a struct `var parent = id.ParentAt(11)` silently changed `id` as well - a trap the SDK's own callers defended against by copying the struct first, and one its sibling `UnwrappedTileId.ParentAt` never had. **Breaking** only for code that relied on the side effect; every call site in the SDK used the return value. `MoveToParent()` is unchanged for anyone who wants the mutation.
-
-- `TaskResultType` gained `AlreadyGenerated`, `AlreadyInProgress`, and `NoData`, so "nothing to do because it is done", "nothing to do because someone else is doing it", and "nothing to do because there was genuinely nothing to build" are no longer all reported as `Success` - the one member that promises generated objects are attached. `NoData` covers a source finding nothing to build for a tile - most tiles contain no landmarks - which is a legitimate, common outcome and explicitly not a failure: the data is correct and must not be invalidated or re-fetched, unlike `DataProcessingFailure`. A caller should still record the tile as resolved on `NoData`, or it will regenerate it forever.
-
-- `MapboxComponentsModuleScript` exposes `RejectTilesOutsideZoom`, `ClampDataLevelToMax` and `CacheSize` as serialized fields. It built its `VectorModuleSettings` entirely in code, so the Components module drew nothing below zoom 12 and the only way to change that was to subclass it and reimplement the whole build method. Defaults match the previous hardcoded values, so existing scenes are unaffected. `GetVectorLayerModule` remains virtual for what the Inspector cannot express, such as a different tileset.
-
-- Landmark selection's two Inspector fields are renamed before the API freezes: `LandmarkHighlightBehaviour.HightlightColor` loses its typo and becomes `HighlightColor`, and the public `UnityEvent` `_visualSelectedEvent` - a serialized field carrying a private field's name, declared below the private methods - becomes `VisualSelected`. Neither has shipped, so no scene data is affected; renaming either after release would have broken both source and serialized scenes.
-
-- The module's internals are no longer public API. `GltfVisualizer`, `GltfGenerationTaskResult`, `MapboxGltfImport`, `MapboxGltfMaterialGenerator`, `LandmarkAnchor`, `LandmarkPolygonFilter`, `FeatureIdColorTable`, `FeatureIdDecoder` and `FeatureIdMeshWriter` are `internal`, joining `LandmarkTerrainSnapper`, `GlbBinaryChunk` and `MeshoptBufferViewDecoder`, which already were. Nothing outside the assembly constructed or called any of them. The glTF schema types stay public: they are Newtonsoft deserialization targets, and that is the one place where narrowing accessibility fails at runtime rather than at compile time.
-
-- `MapboxLandmarksModule.asmdef` is gated on glTFast being installed. It carries no define constraint before now, so a project whose manifest lacks `com.unity.cloud.gltfast` - a hand-edited manifest, a stale lockfile, an air-gapped or scoped-registry setup - failed to compile *entirely*, for a user who never touched landmarks. A `versionDefines` entry raises `MAPBOX_GLTFAST_PRESENT` and `defineConstraints` requires it, so the assembly is simply left out instead. The trade is worth stating: scenes referencing landmark components then show missing-script references rather than a compile error, which is the better of the two failures.
-
-- The landmark data zoom is one constant, `LandmarksLayerModule.LandmarkDataZoom`, rather than a literal `14` repeated across the module, the polygon filter and both overlap connectors.
-
-- `LandmarksLayerModule.BuildingLoaded` carries the landmark id: `Action<GameObject, string>` rather than `Action<GameObject>`. It is also raised by walking out from each building's anchor rather than down from the tile root, because the anchor is the only thing that knows which id a mesh belongs to. `BuildingUnloaded` is removed with it - see Removed.
-
-- Landmark glTF loads can be cancelled. `GltfVisualizer` keeps a `CancellationTokenSource` per in-flight tile and threads the token through both `Load` and `InstantiateSceneAsync`; a cancelled load unwinds, releases its own import and GameObjects, and reports `TaskResultType.Cancelled`, which the module deliberately does not count as a failure - the tile is left unresolved and regenerated if it returns to the cover. `Cancel` is called when a tile's data is evicted mid-load, and for everything still running at teardown.
-
-  A tile merely dropping out of the retained set is **not** cancelled, and that is deliberate rather than an omission: `LoadTileCoverToMemory` legitimately generates tiles outside `_retainedBuildingTiles`, so cancelling on un-retain would abort the flight controller's own preloading.
+- `TaskResultType` gained `AlreadyGenerated`, `AlreadyInProgress` and `NoData`, so these outcomes are no longer reported as `Success`. Custom modules should record a tile as resolved on `NoData`.
+- `MapboxLandmarksModule` only compiles when `com.unity.cloud.gltfast` and `com.unity.meshopt.decompress` are installed. Without them the assembly is left out, and scenes referencing landmark components show missing-script references.
+- `LandmarksLayerModule.BuildingLoaded` is now `Action<GameObject, string>`, carrying the landmark id.
+- `LandmarkHighlightBehaviour.HightlightColor` is renamed `HighlightColor`, and `_visualSelectedEvent` is renamed `VisualSelected`.
+- Landmark implementation classes (`GltfVisualizer`, `MapboxGltfImport`, `LandmarkAnchor`, `LandmarkPolygonFilter` and related) are now `internal`.
+- Landmark glTF loads are cancelled when their tile's data is evicted or the map is destroyed.
 
 #### Removed
 
-- `VectorData.VectorTileData`, the public field each vector module wrote its decoded `Mapbox.VectorTile.VectorTile` into from its own worker thread. A `VectorData` is owned by the source's memory cache and handed to every consumer of that tile, and while `GetVectorSource` still returned one shared source per map two modules raced to populate this field on the same instance; it was only ever valid after a module's mesh generation had run, and nothing in the SDK read it from outside. `VectorLayerModule` now decodes into a worker-local tile and passes it to its completion callback directly, so cached data is never written after the source publishes it. **Breaking** for a subclass that read the field after calling the base `MeshGeneration`; decode `Data` locally instead, as the base class now does. Its completion callback also handles a `DataProcessingFailure` result explicitly, where before that outcome only reached the failure path by way of a null-reference exception in the success path.
-
-- Five commented-out extension-point source files - `TypeFilterObject`, `PolygonCollisionFilterObject`, `FeatureIdFilterObject`, `MeshOnPointModifierObject` and `MeshOnLineModifierObject`. Each was commented out top to bottom, `CreateAssetMenu` attribute included, so they contributed no type, no menu entry and no asset - only the impression, to anyone reading the source for extension points, that these existed. Residue of the v3.0.4/3.0.6 passes; git history keeps them.
-
-- The public surfaces that looked like the answer to "how do I read tile data" and were never wired to anything. **Breaking** as API, inert in behaviour - none of them could return data, and nothing in the SDK called them:
-  - `ByteArrayTile.Data`, `LayerNames()`, `GetLayer()`, `SetVectorFromCache()` and `Dispose(bool)`. The backing field was never assigned by the pipeline - vector bytes are decoded into `VectorData` by the vector module instead - so `LayerNames()` and `GetLayer()` threw `NullReferenceException` on any tile the SDK produced, despite the class documenting a worked example of consuming `Data`. The class doc now describes what the type actually holds: undecoded bytes.
-  - `Source<T>.DataFetched`, `DataFetchedWithCallback` and `FetchingError`, declared but never invoked and with no subscribers anywhere, and `SetMeshGenerationMethod`, which had neither an override nor a caller. `TileErrorEventArgs` went with `FetchingError`, its only consumer.
-  - `UnityTileVectorContainer`, along with `UnityMapTile.VectorContainer`. Nothing ever populated it: `SetVectorData` had no callers, so `Data` was permanently null and `GetAndClearVectorData()` was called once, in `Recycle`, purely to discard nothing. `ImageContainer` and `TerrainContainer` are unaffected.
-
-  A read path for vector features is worth having; these were not it, and a developer could reasonably spend hours believing otherwise.
-
-- `LandmarksLayerModule.LandmarkFootprintCreated` and `LandmarkMeshResults`. Both were public `Action` fields that nothing ever invoked - the only code that would have raised them was commented out in the constructor - so they read as supported extension points and could never fire. `TileFinished` carries the footprints and is live.
-
-- `GltfGenerationTaskResult.InvalidateAndRetry`, never written and never read.
-
-- The tile-root object pool in `GltfVisualizer`. It pre-warmed twenty GameObjects, but the success path hands each root to the module, which destroys it on release rather than returning it - so the pool recycled nothing and only deferred the first twenty allocations.
-
-- The unreferenced `Areas` visualizer assets and materials left in the `LandmarkTour` sample when its water and landuse visualizers were dropped from the scene, and two orphaned ground materials.
-
-- `LandmarksLayerModule.BuildingUnloaded`. It had no subscribers, and despite the name it fired once per tile root rather than once per building - which `TileDisposed` already reports, at the same moment, with the tile id a caller actually needs.
+- `LandmarksLayerModule.LandmarkFootprintCreated`, `LandmarkMeshResults` and `BuildingUnloaded`. Use `TileFinished` and `TileDisposed`.
+- Five commented-out filter and modifier source files that defined no type.
 
 #### Added
 
-- `IMapInformation.TryQueryElevation`, which reports whether an elevation is actually known rather than returning 0 for both "sea level" and "no data". The existing `QueryElevation` remains for callers with no useful response to "unknown".
-
-- `Mapbox.BaseModule.Utilities.MvtProperties.NormalizeIntegers`, public for anyone reading feature properties off their own decode path and hitting the same unsigned-int64 problem described above.
-
-- `UnitySource<T>.TilesetId`, so a caller can see which tileset - or which composed, comma-separated list of tilesets - a source it was handed actually fetches.
-
-- `MapboxLandmarksModule` assembly: `LandmarksLayerModule` plus its `LandmarksLayerModuleScript` MonoBehaviour wrapper, driven by `Constants.Map.LandmarksTilesetId`.
-- Overlap suppression: `LandmarkToVectorConnector` + `LandmarkPolygonFilterObject` reject colliding footprints before mesh generation; `LandmarkToBuildingComponentConnector` zeroes colliding vertices after generation, since the Components module merges buildings into a single mesh.
-- `Mapbox.BaseModule.Utilities.MapboxGeometryUtilities` now ships in `MapboxBaseModule`, where its namespace always said it lived. It was public already, but it was compiled into the landmarks assembly, so nothing could reach it without referencing that. Its contents are unchanged: 2D X-Z polygon intersection, point-in-polygon tests, bounds, boundary-ring extraction, and convex hull, for anyone else needing the same collision-detection primitives the landmark overlap connectors use.
-- Feature ID support, split across `FeatureIdSchema` (captures the custom vertex attribute via `JsonExtensionData`), `GlbBinaryChunk`, `MeshoptBufferViewDecoder`, `FeatureIdColorTable`, `FeatureIdDecoder`, and `FeatureIdMeshWriter` (adds Color as an extra vertex stream, because glTFast builds meshes through the low-level mesh API).
-- `LandmarkHighlightBehaviour`, a raycast-and-tint selection behaviour for landmark buildings. The `LandmarkDemo` sample has it on the map GameObject; the other two samples do not, so click-to-select there needs the component added by hand.
-- `LandmarkDemo` and `LandmarkDemoWithVector` samples, plus `LandmarkTour`, which flies the camera between famous landmarks. `LandmarkTourController` and `LandmarkTourDestination` build and drive the destination list from a UI prefab, `MapFlightController` runs the flight itself (climb, cruise, descend, each phase crossfaded into the next), and `MapCameraClipPlaneDriver` scales the camera's near and far planes to match, for a scene spanning zoom 4 to 17.
-- Documentation: `LandmarksModule.md`, `LandmarksModuleInternals.md`, and `LandmarksModuleKnownGaps.md`.
-
-- `IMapInformation.TryGetViewCenterPosition` / `TryGetViewCenterMercator` / `TryGetViewCenterLatLng`, reporting what the camera is actually looking at - where a ray through the centre of the viewport meets the map plane. The map's own centre is not always the view centre: a camera that pans by recentring the map keeps the two together, while one that keeps the map origin fixed and moves itself does not, and then `CenterMercator` is the world origin rather than anything on screen. They report `false` instead of a placeholder when there is no such point, which is the honest answer for a camera pitched at or above the horizon, where the centre ray is parallel to the plane or points away from it. Computed on demand rather than cached on the map, so no reader can see a stale value. The plane is world y = 0, matching the rest of the SDK's screen-to-map math, so a moved, rotated or reparented MapRoot is not accounted for, and terrain height is ignored.
-
-- A custom imagery layer can now sit on the map without drawing on it, and can fetch coarser than the map draws. `CustomApiLayerModuleScript` gains `Mode` - `Display` (unchanged), `DisplayNonBlocking` (draws, but never holds a tile back), `DataOnly` (fetches and caches, draws nothing) - and `DataZoomOffset`.
-
-  `DataOnly` is what makes a second imagery source possible at all: a tile has one imagery slot, so two drawing layers overwrite each other and the visible map, not just the second consumer, ends up wrong. Read such a layer with the new `RasterSourceMinimapTileSource`, and a minimap can show a different style from the map it mirrors - streets on the minimap over satellite on the map.
-
-  `DataZoomOffset` of -2 fetches one tile per 16 map tiles, cutting requests and cache entries by the same factor for a quarter of the linear detail, which a minimap drawing the imagery small does not miss. Placement needs no work at either end: consumers already derive the sub-rect from the fetched tile's own id, the same way terrain shares one data tile across sixteen render tiles. Nothing in the imagery module changed - the new `CustomImageryLayerModule` overrides only members that were already virtual.
-
-- A minimap component in the imagery module: `MinimapScript` for drop-in use, and the pieces it delegates to for anything beyond that. `IMinimapTileSource` decides what a tile shows (`TerrainHeightMinimapTileSource` and `ImageryMinimapTileSource` ship; implement it for fog-of-war, team colours, or any per-tile texture of your own), `IMinimapRenderer` decides how it is drawn (`RawImageMinimapRenderer` draws pooled UI images; implement it for world-space or render-texture minimaps), and `MinimapProjection` is the layout math on its own, free of both. `MinimapView` ties them together and can be driven directly without the MonoBehaviour.
-
-  `SourceModule` is a dropdown of the scene's imagery, custom-imagery and terrain modules, not an object field. It has to be: modules are components, several sit on one GameObject, and dragging that object makes Unity take whichever `ModuleConstructorScript` is ordered first. The scan covers the whole scene because a module need not be on the map - `CompositeLayerModuleScript` builds a list of module scripts wherever they live - and each entry names its owning GameObject. Composite, vector and component modules are left out, since a minimap cannot draw them. A module that is in the scene but that the map never builds is labelled and explained rather than silently producing an empty minimap. It has to be: every layer module is a component on the map's own GameObject, so dragging that GameObject onto an object field cannot say which module was meant - Unity takes whichever `ModuleConstructorScript` is ordered first. The dropdown names each module by type, numbers duplicates, and marks disabled ones as ones that will not build.
-
-  Drop a layer module on `SourceModule` to draw that module's data rather than whatever the map left on the tile - the Inspector route to a minimap on a different style, with no code. An imagery or custom-imagery module resolves to its raster source, a terrain module to the terrain height texture, and anything else logs what it was and falls back. Leave it empty for the zero-config case, where `Source` picks between the terrain and imagery already on the tile.
-
-  Set `ViewCenterCamera` to the map camera for any camera that moves rather than recentring the map - `Moving3dCamera` and most 3D rigs. The minimap then centres on what that camera is looking at. Prefer it over `ViewCenter` for any pitched view: the camera sits behind and above the point it is looking at, by 100 units of ground distance at 45 degrees of pitch and over 1100 at 5 degrees, so centring on the camera's own position pushes the view centre off toward the edge of the panel. `ViewCenter` remains for centring on a thing rather than a view - a player marker, say.
-
-  Either is needed because those cameras never report a centre back to the map for any camera that moves itself rather than recentring the map - `Moving3dCamera` and most 3D rigs. Those never report a centre back to the map, so `MapInformation.CenterMercator` stays at the start position for the whole session while the view travels away from it; a minimap centred on it holds the origin while the tiles march off the panel. Leave `ViewCenter` empty for `SlippyMapCamera`, which does report its centre.
-
-  `ZoomOffset` is fractional, not whole levels: it only reaches the tile-size exponent, so -1.5 is a valid step. Tile alignment is unaffected - that is the reference zoom's job.
-
-  `BorderThickness` and `BorderColor` drive an optional ring around the panel. Thickness is per-edge pixels rather than a raw scale, since the border is a uniformly scaled copy of the panel and the scale that yields a given width depends on the panel's size (7.5px on a 300px panel is a scale of 1.05). Zero thickness or a transparent colour hides it, and it updates in the scene view without entering play mode.
-
-  A `Minimap.prefab` ships with it, ready to drop under a Canvas: a circular-masked 300x300 panel with the content, rotation and mask nodes already wired to the component. Assign a map to it and it works; everything else is optional. The circular mask is a generated sprite, so swapping the shape is one field on the mask Image.
-
-  Three things in it are less obvious than they look, and are the reason this is a component rather than a snippet in a sample. It reconciles against `MapVisualizer.ActiveTiles` every frame instead of following `TileLoaded`/`TileUnloading`: the dictionary is complete at every instant it can be read, whereas mirroring it from two events with different latencies reintroduces the one-frame hole that shows up as flicker on every zoom change. Tiles are laid out in units of one reference zoom taken from the camera, not from the active tiles, so the routine mix of coarse stand-ins and fine tiles aligns, and a tile that never unloads cannot freeze the minimap's scale. And the tile-size conversion scales by the fractional part of the zoom, so the minimap does not hold one size per zoom level and pop at each integer tick.
-
-- `ShiftMapForDistance.OnRecentered`, raised once per recenter with a `MapRecenteredArgs` carrying the previous and new centre and the offset every geographic point moved by, in both map-local (`LocalOffset`) and world (`WorldOffset`) space. It is for objects the Inspector cannot list: markers, route lines, other players' avatars, cached world positions. It fires after the map and `TransformsToShift` are in the new frame, so a handler can either subtract the offset or place objects again with `ConvertLatLngToPosition`. It also fires after the tile cover is built, so transforms a tile provider follows still belong in `TransformsToShift`. Documented in `RecenteringLocationBasedMaps.md`. Both `LocationBasedGame` sample scenes now list the astronaut, `CharTarget` and `CameraRoot` in `TransformsToShift`, so the sample recenters without the walk-back.
-
-- Click-to-select, wired into a scene and able to say which landmark was clicked. `LandmarkHighlightBehaviour` already raycast, tinted and raised an event, but it appeared in no sample and a hit could not be traced back to a landmark - the tile publishes an id on each building node, and nothing downstream recorded it. It is now a component on the `LandmarkDemo` map with its shipped defaults, `LandmarkComponent` carries `LandmarkId`, and the behaviour exposes `SelectedLandmarkId` for an Inspector-wired handler that only receives the GameObject. Selection is still whole-mesh: feature ids are decoded per-vertex and drive per-part appearance in the shader, but mapping a hit back to one would need the exact render mesh as a collider rather than the convex hull that keeps load cost down.
-
-- `LandmarksLayerModuleScript.TilesetId`, so the 3D tileset the module fetches from is an Inspector field rather than a constant compiled into the SDK. It defaults to `Constants.Map.LandmarksTilesetId` and falls back to it when left empty, so a scene saved before the field existed is unaffected.
-
-- Traffic congestion support for the Directions API wrapper. `AnnotationOptions` is a new `[Flags]` enum (`Distance`, `Duration`, `Speed`, `Congestion`, `CongestionNumeric`, `MaxSpeed`) requested via `DirectionResource.Annotations` and returned on `Response.Leg.Annotation` - `CongestionNumeric` in particular is an `int?[]` (0 = free-flowing, 100 = maximum, `null` = unknown), one entry per pair of coordinates in the leg's geometry, and `MaxSpeed` is a `Response.MaxSpeed[]` whose entries carry either a `Speed`/`Unit` pair or an `Unknown` or `None` (no legal limit) flag. `DirectionResource.GetUrl()` throws when annotations are requested without `Overview.Full`, since the API rejects that combination. `RoutingProfile.DrivingTraffic` requests the `mapbox/driving-traffic` profile, which `Congestion`/`CongestionNumeric` require.
-
-- `Mapbox.DirectionsApi.CongestionLevel`, an enum (`Unknown`/`Low`/`Moderate`/`Heavy`/`Severe`) bucketing a `congestion_numeric` value into the same thresholds the Directions Demo uses to color a route (0-39 low, 40-59 moderate, 60-79 heavy, 80-100 severe, `null` unknown), and `CongestionLevelUtility.LevelForNumeric` to do the bucketing. Lives in the `MapboxDirectionsApi` runtime assembly, so the bucketing is reusable without the demo's rendering code; the demo's Inspector-exposed `CongestionColors` keys off it.
-
-- The Directions API demo (`Runtime/Mapbox/DirectionsApi/Samples~/DirectionsApiDemo`) draws the requested route colored by traffic congestion instead of a single color, via the new `CongestionRouteRenderer` and shared `LineMeshCore` extrusion helper.
-
-#### Tests
-
-- `MapboxGeometryUtilitiesTests` (13 cases) - the first coverage of any kind for this code, and specifically a regression net under `ExtractBoundaryRings`, which is the fix described above and shipped with none. Covers a quad returning one ring in true boundary order (adjacency, not just membership), an annulus returning two rings walking in opposite senses, a closed mesh falling back to the convex hull of its X-Z projection, and vertices split within the weld tolerance still collapsing into one ring; plus `PolygonsIntersect`, `IsPointInPolygon` and both `BoundsOfVertices` overloads.
-
-  Two of them pin down behaviour rather than assert it is right, and are named so. `PolygonsIntersect` reports two squares sharing exactly one edge as intersecting, but not for the reason it looks like: the shared edge is exactly collinear, which `LineSegmentsIntersect` rejects as parallel, and what actually trips is a different pair of edges meeting at the shared corner, since the segment test's parameter ranges are inclusive of their endpoints. And `IsPointInPolygon` uses the standard half-open ray-cast convention, so a vertex and one of the two edges meeting at it count as inside while the opposite edge counts as outside. Both are worth knowing before the overlap algorithm is revisited.
-
-- `LandmarkPolygonFilterTests` (9 cases) - the first coverage of the vector connector's filter and in particular its tile-edge replication: a footprint rejecting an overlapping feature in its own tile, a footprint wholly inside its tile but within the margin of the east edge rejecting the east neighbour's feature that overhangs into it, a footprint straddling the north edge rejecting a feature in the north neighbour, a footprint far from every edge not being replicated, `AddLandmarkPolygons` returning exactly the source tile and the neighbours it touched (and nothing for empty input), `RemoveLandmarkPolygonsFromSource` taking the replicas with it, and a z16 feature being scaled into z14 space before the test. They live in a new `LandmarksModuleTests` editor assembly, constrained on the same defines as the landmarks module so it drops out with it.
+- **Traffic-aware routing.** `DirectionResource.Annotations` (`AnnotationOptions`: `Distance`, `Duration`, `Speed`, `Congestion`, `CongestionNumeric`, `MaxSpeed`) requests per-segment annotations, returned on `Response.Leg.Annotation`. Requires `Overview.Full`; congestion also requires `RoutingProfile.DrivingTraffic`. `CongestionLevel` and `CongestionLevelUtility.LevelForNumeric` bucket congestion into `Low`, `Moderate`, `Heavy` and `Severe`. The Directions demo draws the route colored by congestion.
+- **Minimap.** `MinimapScript` drives it; extend with `IMinimapTileSource` and `IMinimapRenderer`.
+- **Recentering support.** `ShiftMapForDistance.TransformsToShift` moves the listed transforms with the map on each recenter. `ShiftMapForDistance.OnRecentered` reports the offset (`MapRecenteredArgs`) for objects placed from code. See `Documentation~/RecenteringLocationBasedMaps.md`.
+- `IMapInformation.TryQueryElevation`, which reports whether an elevation is known rather than returning 0 for unknown.
+- `IMapInformation.TryGetViewCenterPosition`, `TryGetViewCenterMercator` and `TryGetViewCenterLatLng`, reporting the point the camera is looking at. Returns `false` when the view centre does not meet the map plane.
+- `MvtProperties.NormalizeIntegers`, for reading integer feature properties from your own decode path.
+- `UnitySource<T>.TilesetId`.
+- `MapboxGeometryUtilities` moved to `MapboxBaseModule`: polygon intersection, point-in-polygon, bounds, boundary-ring extraction and convex hull.
+- `LandmarksLayerModuleScript.TilesetId`, an Inspector field defaulting to `Constants.Map.LandmarksTilesetId`.
+- `LandmarkComponent.LandmarkId` and `LandmarkHighlightBehaviour.SelectedLandmarkId`.
+- `MapboxComponentsModuleScript` exposes `RejectTilesOutsideZoom`, `ClampDataLevelToMax` and `CacheSize`.
+- Both `LocationBasedGame` sample scenes list their player and camera objects in `TransformsToShift`.
+- Tests for `MapboxGeometryUtilities` and `LandmarkPolygonFilter`.
 
 #### Dependencies
 
-- `com.unity.cloud.gltfast` (6.18.0). 6.18.0 is the last release supporting Unity 2022.3; 6.19.0 and later require Unity 6.0 LTS. This is declared as a minimum, not a pin: the module uses no glTFast API that changed in 6.19.0 and no API marked obsolete, so projects on Unity 6 may raise the version in their own manifest without further changes.
-- `com.unity.meshopt.decompress` (0.2.0-exp.1). Mandatory, with no degraded mode: the landmarks API is meshopt-only, the tiles list `EXT_meshopt_compression` in `extensionsRequired`, and glTFast aborts any load whose required extension has no decoder - so without this package there are no landmarks at all, not landmarks without feature IDs. `MapboxLandmarksModule.asmdef` therefore requires it through `defineConstraints`, exactly as it requires glTFast, and a project without it gets no landmarks assembly rather than a broken one. The separate `MESHOPT_IS_RECENT` `versionDefines` entry is a narrower thing: it gates only the module's own feature-ID decode path, which needs a meshopt API newer than the 0.1.x package exposed. An older-but-present package therefore still draws landmarks, just untinted by feature id.
-
-Note that the dependency on glTFast is not code-only: `glTF-pbrMetallicRoughness-Clearcoat_MAPBOX.shadergraph` and `PBR_metallic_roughness_advanced_MAPBOX.shadersubgraph` reference seven of glTFast's shader subgraphs (`ScreenGrab`, `MetallicRoughness`, `Clearcoat`, `Normal`, `TextureTransform`, `Occlusion`, `Emission`) by asset GUID, so glTFast's `Runtime/Shader` tree is load-bearing for the landmark material.
+- `com.unity.cloud.gltfast` 6.18.0, the last release supporting Unity 2022.3. Projects on Unity 6 may raise the version in their own manifest.
+- `com.unity.meshopt.decompress` 0.2.0-exp.1. Required for landmarks.
 
 ### v3.1.1
 

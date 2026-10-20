@@ -143,8 +143,6 @@ namespace Mapbox.LocationModule.Helpers
             var distanceFromCenter = Vector2d.Distance(mapCenterMercator, locationMercator);
             if (distanceFromCenter > ShiftMapDistance)
             {
-                Debug.Log(string.Format("ShiftMapForDistance: player is {0} from map centre (limit {1}), recentering map", distanceFromCenter, ShiftMapDistance));
-
                 var previousCenter = _map.MapInformation.LatitudeLongitude;
 
                 // The position the player's new location currently sits at, measured against

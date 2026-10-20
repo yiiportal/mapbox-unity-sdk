@@ -10,8 +10,9 @@ using UnityEngine;
 namespace Mapbox.ImageModule.Editor
 {
     /// <summary>
-    /// Exists for one field. A minimap has to name a specific layer module, and an object field
-    /// cannot: modules are components, several sit on one GameObject, and dragging that object makes
+    /// Exists for one field. The Source dropdown lists every layer module in the scene a minimap
+    /// can draw, with "None" meaning the map's own imagery. A module has to be picked by name
+    /// because an object field cannot: modules are components, several sit on one GameObject, and dragging that object makes
     /// Unity silently take whichever <see cref="ModuleConstructorScript"/> is ordered first.
     ///
     /// The scan covers the whole scene rather than the map's own GameObject, because a module does
@@ -25,6 +26,7 @@ namespace Mapbox.ImageModule.Editor
     public class MinimapScriptEditor : UnityEditor.Editor
     {
         private const string SourceModulePath = "SourceModule";
+        private const string NoneLabel = "None (map imagery)";
 
         // Names, not types, for the two modules in the custom imagery assembly: that assembly
         // references this one, so referencing it back would be circular. The rest are real types,
@@ -60,7 +62,12 @@ namespace Mapbox.ImageModule.Editor
 
                 if (iterator.propertyPath == SourceModulePath)
                 {
-                    DrawSourceModulePicker(iterator);
+                    DrawSourcePicker(iterator);
+                    continue;
+                }
+
+                if (!IsShownForCurrentModes(iterator.propertyPath))
+                {
                     continue;
                 }
 
@@ -68,6 +75,37 @@ namespace Mapbox.ImageModule.Editor
             }
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        /// <summary>
+        /// The reference fields only make sense in one mode each, so the others are hidden rather
+        /// than left as empty slots that look like they need filling.
+        /// </summary>
+        private bool IsShownForCurrentModes(string propertyPath)
+        {
+            switch (propertyPath)
+            {
+                case "ViewCenter":
+                    return CenterIs(MinimapScript.CenterMode.Transform);
+                case "ViewCenterCamera":
+                    return CenterIs(MinimapScript.CenterMode.CameraView);
+                case "OrientationTransform":
+                    return RotationIs(MinimapScript.RotationMode.Transform);
+                case "OrientationRoot":
+                    return !RotationIs(MinimapScript.RotationMode.None);
+                default:
+                    return true;
+            }
+        }
+
+        private bool CenterIs(MinimapScript.CenterMode mode)
+        {
+            return serializedObject.FindProperty("Center").enumValueIndex == (int)mode;
+        }
+
+        private bool RotationIs(MinimapScript.RotationMode mode)
+        {
+            return serializedObject.FindProperty("Rotation").enumValueIndex == (int)mode;
         }
 
         /// <summary>
@@ -94,7 +132,7 @@ namespace Mapbox.ImageModule.Editor
             return false;
         }
 
-        private void DrawSourceModulePicker(SerializedProperty sourceModuleProp)
+        private void DrawSourcePicker(SerializedProperty sourceModuleProp)
         {
             var map = serializedObject.FindProperty("Map").objectReferenceValue as MapBehaviourCore;
             var current = sourceModuleProp.objectReferenceValue as ModuleConstructorScript;
@@ -106,14 +144,14 @@ namespace Mapbox.ImageModule.Editor
 
             var rect = EditorGUILayout.GetControlRect();
             var fieldRect = EditorGUI.PrefixLabel(
-                rect, new GUIContent(sourceModuleProp.displayName, sourceModuleProp.tooltip));
+                rect, new GUIContent("Source", sourceModuleProp.tooltip));
 
             // A dropdown button rather than a popup: a popup has to be handed every option at draw
             // time, which would mean scanning the scene on every Inspector repaint. This only builds
             // the list when it is opened.
             if (EditorGUI.DropdownButton(fieldRect, new GUIContent(DescribeSelection(current, map)), FocusType.Keyboard))
             {
-                ShowModuleMenu(fieldRect, map, current);
+                ShowSourceMenu(fieldRect, map, current);
             }
 
             // Reachability is worth calling out separately from existence: a module the map never
@@ -132,7 +170,7 @@ namespace Mapbox.ImageModule.Editor
         {
             if (current == null)
             {
-                return "None (use Source setting)";
+                return NoneLabel;
             }
 
             var label = $"{current.GetType().Name}  ({current.gameObject.name})";
@@ -143,25 +181,20 @@ namespace Mapbox.ImageModule.Editor
             return label;
         }
 
-        private void ShowModuleMenu(Rect rect, MapBehaviourCore map, ModuleConstructorScript current)
+        private void ShowSourceMenu(Rect rect, MapBehaviourCore map, ModuleConstructorScript current)
         {
             CollectModules(map);
 
             var menu = new GenericMenu();
-            menu.AddItem(new GUIContent("None (use Source setting)"), current == null, () => Assign(null));
+            menu.AddItem(new GUIContent(NoneLabel), current == null, () => Assign(null));
 
-            if (_modules.Count == 0)
-            {
-                menu.AddDisabledItem(
-                    new GUIContent("No imagery, custom imagery or terrain modules in the scene"));
-            }
-            else
+            if (_modules.Count > 0)
             {
                 menu.AddSeparator(string.Empty);
                 for (var i = 0; i < _modules.Count; i++)
                 {
                     var module = _modules[i];
-                    menu.AddItem(new GUIContent(_labels[i + 1]), module == current, () => Assign(module));
+                    menu.AddItem(new GUIContent(_labels[i]), module == current, () => Assign(module));
                 }
             }
 
@@ -188,7 +221,6 @@ namespace Mapbox.ImageModule.Editor
         {
             _modules.Clear();
             _labels.Clear();
-            _labels.Add("None (use Source setting)");
 
             var found = Object.FindObjectsByType<ModuleConstructorScript>(
                 FindObjectsInactive.Include, FindObjectsSortMode.None);

@@ -56,13 +56,14 @@ MonoBehaviour:
   ViewCenterCamera: {fileID: 0}
   ViewCenter: {fileID: 0}
   SourceModule: {fileID: 0}
-  Source: 0
   TileSize: 300
   ZoomOffset: -1.5
   BorderImage: {fileID: 1089534991215605768}
   BorderThickness: 7.5
   BorderColor: {r: 1, g: 1, b: 1, a: 1}
-  RotateWithBearing: 1
+  Center: 0
+  Rotation: 1
+  OrientationTransform: {fileID: 0}
 --- !u!1 &3166306518982160210
 GameObject:
   m_ObjectHideFlags: 0

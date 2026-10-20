@@ -11,7 +11,7 @@ namespace Mapbox.ImageModule.Minimap.Unity
     /// Drop-in minimap: point it at a map and a UI root and it mirrors the map's tiles every frame.
     ///
     /// This is the wiring only - every decision it makes is delegated. What tiles show comes from
-    /// an <see cref="IMinimapTileSource"/> (<see cref="Source"/> picks a shipped one, or call
+    /// an <see cref="IMinimapTileSource"/> (<see cref="SourceModule"/> picks a module's data, or call
     /// <see cref="SetTileSource"/> with your own), how they are drawn comes from an
     /// <see cref="IMinimapRenderer"/> (<see cref="SetRenderer"/> to replace the UI one), and where
     /// they go comes from <see cref="MinimapProjection"/>. Read <see cref="View"/> to reach any of
@@ -19,88 +19,86 @@ namespace Mapbox.ImageModule.Minimap.Unity
     /// </summary>
     public class MinimapScript : MonoBehaviour
     {
-        public enum MinimapSource
+        public enum CenterMode
         {
-            /// <summary>Encoded elevation raster - reads as a greyscale relief map.</summary>
-            TerrainHeight,
+            /// <summary>The map's own centre. Right for a camera that recentres the map as it pans.</summary>
+            MapCenter,
 
-            /// <summary>Map imagery, so the minimap matches the map seen from above.</summary>
-            Imagery
+            /// <summary>A transform's position, such as the player.</summary>
+            Transform,
+
+            /// <summary>The ground point a camera is looking at. For free-flying cameras with no player.</summary>
+            CameraView
         }
 
-        [Tooltip("The map to mirror. Any MapBehaviourCore - the same one driving your scene's map. " +
-                 "The minimap adds no fetching of its own; it draws the tiles that map already has.")]
+        public enum RotationMode
+        {
+            /// <summary>North up.</summary>
+            None,
+
+            /// <summary>The map's bearing, as set through ChangeView by cameras such as Moving3dCamera.</summary>
+            MapBearing,
+
+            /// <summary>A transform's heading, such as a camera rig that rotates around the player.</summary>
+            Transform
+        }
+
+        [Header("Map")]
+        [Tooltip("The map to mirror. The minimap draws the tiles this map has already loaded; it fetches nothing itself.")]
         public MapBehaviourCore Map;
 
-        [Tooltip("Parent for the per-tile images, and the thing whose centre is the map centre. " +
-                 "Put a Mask or RectMask2D on an ANCESTOR of this to get a circular (or any shaped) " +
-                 "minimap. Leave empty to use this object's own RectTransform.")]
-        public RectTransform ContentRoot;
-
-        [Tooltip("What gets rotated when Rotate With Bearing is on. Usually Content Root's parent, " +
-                 "so a frame or compass drawn around the map does not rotate with it. " +
-                 "Leave empty to use Content Root's parent.")]
-        public RectTransform OrientationRoot;
-
-        [Tooltip("Optional, and the best choice for a camera that moves rather than recentring the " +
-                 "map. The minimap centres on what this camera is looking at - where a ray through " +
-                 "the middle of the screen meets the map plane - which is what you want for a " +
-                 "pitched or 3D view, because the camera itself sits behind and above that point. " +
-                 "Takes priority over View Center. Falls back to View Center, then the map's own " +
-                 "centre, on the frames the centre ray misses the plane (a camera at or above the " +
-                 "horizon).")]
-        public Camera ViewCenterCamera;
-
-        [Tooltip("Optional. What the minimap centres on - normally the camera, or whatever the camera " +
-                 "looks at. Leave empty for a camera that recentres the map as it pans (SlippyMapCamera). " +
-                 "REQUIRED for a camera that keeps the map origin fixed and moves itself instead " +
-                 "(Moving3dCamera, and most 3D/first-person rigs): those never tell the map its centre " +
-                 "changed, so without this the minimap holds the start position while the tiles slide " +
-                 "off the panel.")]
-        public Transform ViewCenter;
-
-        [Tooltip("Optional. Drop a layer module here to read ITS data, instead of whatever the map " +
-                 "left on the tile.\n\n" +
-                 "This is how the minimap shows a DIFFERENT style from the main map: add a second " +
-                 "custom imagery module, set its Mode to Data Only so it does not draw over the map, " +
-                 "and drop it here. Satellite on the map, streets on the minimap.\n\n" +
-                 "Leave empty to draw whatever the map itself is displaying, chosen by Source below. " +
-                 "A terrain module dropped here resolves to the terrain height texture.")]
+        [Tooltip("Which module's tiles to draw. Leave empty to draw the map's imagery. " +
+                 "Pick a terrain module for a height map, or a custom imagery module with Mode = Data Only " +
+                 "for a different style than the map shows.")]
         public ModuleConstructorScript SourceModule;
 
-        [Tooltip("Which tile texture to draw. Terrain Height needs a terrain module in the scene; " +
-                 "Imagery needs an imagery module. For anything else, call SetTileSource in code.")]
-        public MinimapSource Source = MinimapSource.TerrainHeight;
+        [Header("Centre")]
+        [Tooltip("What the minimap stays centred on. Map Center for a camera that recentres the map as it pans " +
+                 "(SlippyMapCamera). Transform to follow an object such as the player. Camera View for a " +
+                 "free-flying camera with no player (Moving3dCamera).")]
+        public CenterMode Center = CenterMode.MapCenter;
 
-        [Tooltip("Pixel size of one tile at the map's current zoom, before zoom offset. " +
-                 "300 suits a ~300-400px panel; raise it for a larger minimap, lower it to fit " +
-                 "more tiles in the same space.")]
+        [Tooltip("The object to stay centred on, such as the player.")]
+        public Transform ViewCenter;
+
+        [Tooltip("The camera whose view centre to follow. Centres on the ground point in the middle of its view. " +
+                 "Do not use for a camera that orbits a character; the minimap would circle as the camera turns.")]
+        public Camera ViewCenterCamera;
+
+        [Header("Rotation")]
+        [Tooltip("How the minimap rotates. None keeps north up. Map Bearing follows the map's bearing, set by " +
+                 "cameras such as Moving3dCamera. Transform follows a transform's heading, such as a camera rig " +
+                 "that rotates around the player.")]
+        public RotationMode Rotation = RotationMode.MapBearing;
+
+        [Tooltip("The transform whose heading (Y rotation) the minimap follows, such as the camera rig.")]
+        public Transform OrientationTransform;
+
+        [Tooltip("The UI object that rotates. Leave empty to use Content Root's parent, so a frame or compass " +
+                 "around the map stays still. Already wired in the prefab.")]
+        public RectTransform OrientationRoot;
+
+        [Header("Layout")]
+        [Tooltip("Parent of the per-tile images; its centre is the map centre. Leave empty to use this object. " +
+                 "Put a Mask on an ancestor for a circular minimap. Already wired in the prefab.")]
+        public RectTransform ContentRoot;
+
+        [Tooltip("Pixel size of one tile at the map's zoom, before Zoom Offset. 300 suits a 300-400px panel.")]
         public float TileSize = 300f;
 
-        [Tooltip("Zoom levels away from the map's zoom. 0 matches the main view exactly. " +
-                 "Negative shows a wider area, positive zooms in, and fractional values work. " +
-                 "Defaults to -1.5, which shows noticeably more context than the main view. Only " +
-                 "scales what is drawn: it does not load tiles the map has not loaded, so a large " +
-                 "negative value shows a wider area at coarser detail, not more area.")]
+        [Tooltip("Zoom relative to the map. 0 matches the map, negative shows a wider area, positive zooms in. " +
+                 "Fractional values work. Only scales the tiles the map already loaded.")]
         public float ZoomOffset = -1.5f;
 
-        [Tooltip("Optional ring drawn around the minimap. A uniformly scaled copy of the panel " +
-                 "sitting behind the mask, so only the part outside the mask shows. Wired to the " +
-                 "prefab's Border image; leave empty for no border.")]
+        [Header("Border")]
+        [Tooltip("Optional ring around the panel. Already wired in the prefab; leave empty for no border.")]
         public Image BorderImage;
 
-        [Tooltip("Border width in pixels on each edge. 0 hides the border. Converted to a uniform " +
-                 "scale on the border image, so it stays a ring of even width whatever the panel " +
-                 "size - 7.5 on a 300px panel is a scale of 1.05.")]
+        [Tooltip("Border width in pixels. 0 hides it.")]
         public float BorderThickness = 7.5f;
 
-        [Tooltip("Border colour. A fully transparent colour hides the border, same as thickness 0.")]
+        [Tooltip("Border colour. Fully transparent hides it.")]
         public Color BorderColor = Color.white;
-
-        [Tooltip("Rotate the minimap with the map's bearing, so it always faces the way the camera " +
-                 "does. Off leaves it north-up, which is usually what you want if the minimap has a " +
-                 "compass or labels drawn on it.")]
-        public bool RotateWithBearing = true;
 
         /// <summary>
         /// The live view. Null until the map reports itself initialized. Reach through it to swap
@@ -113,7 +111,7 @@ namespace Mapbox.ImageModule.Minimap.Unity
         private Mapbox.BaseModule.Map.MapboxMap _map;
 
         /// <summary>
-        /// Use a tile source of your own instead of <see cref="Source"/>. Takes effect immediately,
+        /// Use a tile source of your own instead of <see cref="SourceModule"/>. Takes effect immediately,
         /// before or after initialization.
         /// </summary>
         public void SetTileSource(IMinimapTileSource tileSource)
@@ -225,18 +223,12 @@ namespace Mapbox.ImageModule.Minimap.Unity
                 }
             }
 
-            switch (Source)
-            {
-                case MinimapSource.Imagery:
-                    return new ImageryMinimapTileSource();
-                default:
-                    return new TerrainHeightMinimapTileSource();
-            }
+            return new ImageryMinimapTileSource();
         }
 
         /// <summary>
-        /// Turns the dropped-in module into a tile source, or returns null to fall back to
-        /// <see cref="Source"/>.
+        /// Turns the dropped-in module into a tile source, or returns null to fall back to the
+        /// map's imagery.
         /// </summary>
         private IMinimapTileSource ResolveModuleTileSource()
         {
@@ -254,7 +246,7 @@ namespace Mapbox.ImageModule.Minimap.Unity
                     Debug.LogError($"{nameof(MinimapScript)} on \'{name}\': Source Module " +
                                    $"\'{SourceModule.name}\' is disabled, and the map skips disabled " +
                                    "module scripts when it builds them. Enable the component. " +
-                                   "Falling back to the Source setting.", this);
+                                   "Falling back to the map's imagery.", this);
                 }
                 else if (Map != null && SourceModule.gameObject != Map.gameObject)
                 {
@@ -262,14 +254,14 @@ namespace Mapbox.ImageModule.Minimap.Unity
                                    $"'{SourceModule.name}' is on a different GameObject than the map " +
                                    $"('{Map.name}'), so the map never built it - modules have to be " +
                                    $"components on the map's own GameObject. Move it onto '{Map.name}' " +
-                                   "alongside the other layer modules. Falling back to the Source setting.",
+                                   "alongside the other layer modules. Falling back to the map's imagery.",
                                    this);
                 }
                 else
                 {
                     Debug.LogError($"{nameof(MinimapScript)} on '{name}': Source Module " +
                                    $"'{SourceModule.name}' has not built its module yet, so there is " +
-                                   "nothing to read. Falling back to the Source setting.", this);
+                                   "nothing to read. Falling back to the map's imagery.", this);
                 }
 
                 return null;
@@ -294,7 +286,7 @@ namespace Mapbox.ImageModule.Minimap.Unity
             Debug.LogError($"{nameof(MinimapScript)} on '{name}': Source Module " +
                            $"'{SourceModule.name}' is a {implementation.GetType().Name}, which has no " +
                            "imagery or terrain for a minimap to draw. Drop an imagery, custom imagery " +
-                           "or terrain module here. Falling back to the Source setting.", this);
+                           "or terrain module here. Falling back to the map's imagery.", this);
             return null;
         }
 
@@ -310,22 +302,83 @@ namespace Mapbox.ImageModule.Minimap.Unity
         {
             var info = _map.MapInformation;
 
-            if (ViewCenterCamera != null && info.TryGetViewCenterMercator(ViewCenterCamera, out var viewCenter))
+            switch (Center)
             {
-                return viewCenter;
+                case CenterMode.CameraView:
+                    if (ViewCenterCamera == null)
+                    {
+                        WarnMissing(nameof(ViewCenterCamera), nameof(CenterMode.CameraView));
+                        return null;
+                    }
+                    // Falls back to the map centre on the frames the centre ray misses the plane.
+                    return info.TryGetViewCenterMercator(ViewCenterCamera, out var viewCenter)
+                        ? viewCenter
+                        : (Mapbox.BaseModule.Data.Vector2d.Vector2d?)null;
+
+                case CenterMode.Transform:
+                    if (ViewCenter == null)
+                    {
+                        WarnMissing(nameof(ViewCenter), nameof(CenterMode.Transform));
+                        return null;
+                    }
+                    // Unity position -> web mercator, the same relation MapInformationStaticMethods
+                    // uses: mercator = centre + (x, z) * scale.
+                    var local = ViewCenter.position;
+                    return new Mapbox.BaseModule.Data.Vector2d.Vector2d(
+                        info.CenterMercator.x + local.x * info.Scale,
+                        info.CenterMercator.y + local.z * info.Scale);
+
+                default:
+                    return null;
+            }
+        }
+
+        private bool _warnedMissingReference;
+
+        private void WarnMissing(string field, string mode)
+        {
+            if (_warnedMissingReference)
+            {
+                return;
             }
 
-            if (ViewCenter != null)
+            _warnedMissingReference = true;
+            Debug.LogWarning($"{nameof(MinimapScript)} on '{name}': {field} is not set but the mode " +
+                             $"is {mode}. Using the map centre instead.", this);
+        }
+
+        /// <summary>
+        /// Bearing in degrees clockwise from north per <see cref="Rotation"/>, or null for north-up.
+        /// A transform's heading is taken relative to the map root so a rotated map still reads
+        /// correctly. Euler(0, 90, 0) faces +X, which is east, so Unity's Y rotation is
+        /// already a bearing and needs no conversion.
+        /// </summary>
+        private float? ResolveBearing()
+        {
+            switch (Rotation)
             {
-                // Unity position -> web mercator, the same relation MapInformationStaticMethods uses:
-                // mercator = centre + (x, z) * scale.
-                var local = ViewCenter.position;
-                return new Mapbox.BaseModule.Data.Vector2d.Vector2d(
-                    info.CenterMercator.x + local.x * info.Scale,
-                    info.CenterMercator.y + local.z * info.Scale);
+                case RotationMode.MapBearing:
+                    return _map.MapInformation.Bearing;
+                case RotationMode.Transform:
+                    break;
+                default:
+                    return null;
             }
 
-            return null;
+            if (OrientationTransform == null)
+            {
+                WarnMissing(nameof(OrientationTransform), nameof(RotationMode.Transform));
+                return null;
+            }
+
+            var heading = OrientationTransform.eulerAngles.y;
+            var mapRoot = _map.UnityContext?.MapRoot;
+            if (mapRoot != null)
+            {
+                heading -= mapRoot.eulerAngles.y;
+            }
+
+            return heading;
         }
 
         /// <summary>
@@ -387,7 +440,7 @@ namespace Mapbox.ImageModule.Minimap.Unity
             // north lands at +tileSize), and a positive UI z-rotation is counter-clockwise
             // (Euler(0, 0, 90) takes +x to +y). Requiring the camera's facing to land at panel-up
             // then gives rotation == bearing exactly.
-            View.OrientationDegrees = RotateWithBearing ? _map.MapInformation.Bearing : (float?)null;
+            View.OrientationDegrees = ResolveBearing();
 
             View.Update();
         }

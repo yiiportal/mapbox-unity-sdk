@@ -394,7 +394,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 				}
 				catch (Exception e)
 				{
-					Debug.Log(e.ToString());
+					Debug.LogException(e);
 					return false;
 				}
 
