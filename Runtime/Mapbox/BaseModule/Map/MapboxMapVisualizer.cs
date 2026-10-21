@@ -26,6 +26,15 @@ namespace Mapbox.BaseModule.Map
         public List<UnityMapTile> TempTiles { get; private set; }
         public IMapInformation MapInformation => _mapInformation;
 
+        /// <summary>
+        /// FORK yiiportal: while set, Load still lays out the cover from data already in memory
+        /// but layer modules are not told to retain it, so nothing is requested or cancelled. For
+        /// views that change every frame and are about to be replaced (a camera flight), where
+        /// each cover's requests would be cancelled by the next. Clearing it does not redraw;
+        /// the next Load retains the cover then.
+        /// </summary>
+        public bool SuspendTileRequests { get; set; }
+
         // Explicit interface impl narrows ActiveTiles to IReadOnlyDictionary for the
         // ITileLifecycleSource contract while internal code keeps the mutable Dictionary
         // it needs for Add/Remove.
@@ -211,6 +220,11 @@ namespace Mapbox.BaseModule.Map
                 Debug.Log($"MapboxMapVisualizer: Load cover={tileCover.Tiles.Count} instant={instantCount} temp={tempCount} removed={_toRemove.Count} active={ActiveTiles.Count}");
             }
 #endif
+
+            if (SuspendTileRequests)
+            {
+                return;
+            }
 
             _retainedTiles.Clear();
             foreach (var tile in tileCover.Tiles)

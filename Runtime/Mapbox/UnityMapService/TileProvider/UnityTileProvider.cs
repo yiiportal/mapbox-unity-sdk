@@ -105,6 +105,12 @@ namespace Mapbox.UnityMapService.TileProviders
 		// Reusable array for 4 bottom-plane corners to avoid per-frame allocation
 		protected readonly Vector3[] _corners = new Vector3[4];
 
+		/// <summary>
+		/// FORK yiiportal: logs budget transitions at info rather than warning level, for a
+		/// camera flight whose climb is expected to hit the budget at every zoom.
+		/// </summary>
+		public bool QuietBudgetLogs { get; set; }
+
 		public bool WasTileBudgetApplied { get; private set; }
 		public int LastRequestedMaximumZoom { get; private set; }
 		public int LastAppliedMaximumZoom { get; private set; }
@@ -412,7 +418,12 @@ namespace Mapbox.UnityMapService.TileProviders
 
 			_loggedTileBudgetApplied = WasTileBudgetApplied;
 			_loggedAppliedMaximumZoom = LastAppliedMaximumZoom;
-			if (WasTileBudgetApplied)
+			if (WasTileBudgetApplied && QuietBudgetLogs)
+			{
+				Debug.Log(
+					$"UnityTileProvider: cover budget applied budget={tileBudget}, requestedMaxZoom={LastRequestedMaximumZoom}, appliedMaxZoom={LastAppliedMaximumZoom}, tiles={LastAppliedTileCount}.");
+			}
+			else if (WasTileBudgetApplied)
 			{
 				Debug.LogWarning(
 					$"UnityTileProvider: cover budget applied budget={tileBudget}, requestedMaxZoom={LastRequestedMaximumZoom}, appliedMaxZoom={LastAppliedMaximumZoom}, tiles={LastAppliedTileCount}.");
