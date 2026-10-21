@@ -47,6 +47,7 @@ namespace Mapbox.BaseModule.Map
         private HashSet<UnwrappedTileId> _toRemove;
         private HashSet<CanonicalTileId> _retainedTiles;
         private HashSet<UnwrappedTileId> _deferredRemovals;
+        private readonly HashSet<UnwrappedTileId> _fillerScratch = new HashSet<UnwrappedTileId>();
         private Coroutine _internalUpdateCoroutine;
         private bool _destroyed;
 
@@ -209,6 +210,11 @@ namespace Mapbox.BaseModule.Map
             if (tempCount == 0)
             {
                 PoolDeferredTiles();
+            }
+            else if (SuspendTileRequests)
+            {
+                // Suspended temporary tiles never complete, so their predecessors would pile up.
+                PoolDeferredTilesExceptFillers();
             }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
@@ -513,6 +519,43 @@ namespace Mapbox.BaseModule.Map
             _deferredRemovals.Clear();
         }
 
+
+        private void PoolDeferredTilesExceptFillers()
+        {
+            _fillerScratch.Clear();
+            foreach (var tempTile in TempTiles)
+            {
+                if (tempTile.Children == null)
+                {
+                    continue;
+                }
+
+                foreach (var child in tempTile.Children)
+                {
+                    _fillerScratch.Add(child.UnwrappedTileId);
+                }
+            }
+
+            _deferredRemovals.RemoveWhere(tileId =>
+            {
+                if (_fillerScratch.Contains(tileId))
+                {
+                    return false;
+                }
+
+                if (ActiveTiles.TryGetValue(tileId, out var tile))
+                {
+                    if (tile.LoadingState == LoadingState.Temporary)
+                    {
+                        TempTiles.Remove(tile);
+                    }
+
+                    PoolTile(tile);
+                }
+
+                return true;
+            });
+        }
 
         protected bool DelveInto(UnwrappedTileId tileId, List<UnityMapTile> activeChildren, int recursiveDepth = 3)
         {
