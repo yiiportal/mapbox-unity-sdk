@@ -189,7 +189,13 @@ namespace Mapbox.LandmarksModule
 
             try
             {
-                loaded = await gltf.Load(vectorData.Data, cancellationToken: token);
+                // FORK yiiportal: Load gets no token. glTFast 6.18 disposes its volatile buffers in
+                // Load's finally even when a cancellation interrupts Prepare with jobs still
+                // reading them (its own TODO in GltfImport), which throws in the Editor and is a
+                // use-after-free with safety checks off. Load runs to completion instead and a
+                // cancellation is honoured as soon as it returns.
+                loaded = await gltf.Load(vectorData.Data);
+                token.ThrowIfCancellationRequested();
 
                 // Everything below writes into the scene, and the map can be torn down while the
                 // load is in flight. Instantiating into a destroyed hierarchy is how a root ends up
