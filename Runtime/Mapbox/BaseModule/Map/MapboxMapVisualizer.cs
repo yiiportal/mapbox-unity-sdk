@@ -27,11 +27,11 @@ namespace Mapbox.BaseModule.Map
         public IMapInformation MapInformation => _mapInformation;
 
         /// <summary>
-        /// FORK yiiportal: while set, Load still lays out the cover from data already in memory
-        /// but layer modules are not told to retain it, so nothing is requested or cancelled. For
-        /// views that change every frame and are about to be replaced (a camera flight), where
-        /// each cover's requests would be cancelled by the next. Clearing it does not redraw;
-        /// the next Load retains the cover then.
+        /// FORK yiiportal: while set, Load lays out the cover from data already in memory only (see
+        /// LoadFromMemory) and layer modules are not told to retain it, so nothing is requested or
+        /// cancelled. For views that change every frame and are about to be replaced (a camera
+        /// flight), where each cover's requests would be cancelled by the next. Clearing it does
+        /// not redraw; the next Load retains the cover then.
         /// </summary>
         public bool SuspendTileRequests { get; set; }
 
@@ -47,7 +47,6 @@ namespace Mapbox.BaseModule.Map
         private HashSet<UnwrappedTileId> _toRemove;
         private HashSet<CanonicalTileId> _retainedTiles;
         private HashSet<UnwrappedTileId> _deferredRemovals;
-        private readonly HashSet<UnwrappedTileId> _fillerScratch = new HashSet<UnwrappedTileId>();
         private Coroutine _internalUpdateCoroutine;
         private bool _destroyed;
 
@@ -140,6 +139,12 @@ namespace Mapbox.BaseModule.Map
 
         public virtual void Load(TileCover tileCover)
         {
+            if (SuspendTileRequests)
+            {
+                LoadFromMemory(tileCover);
+                return;
+            }
+
             int instantCount = 0;
             int tempCount = 0;
             RemoveUnnecessaryTiles(tileCover);
@@ -211,11 +216,6 @@ namespace Mapbox.BaseModule.Map
             {
                 PoolDeferredTiles();
             }
-            else if (SuspendTileRequests)
-            {
-                // Suspended temporary tiles never complete, so their predecessors would pile up.
-                PoolDeferredTilesExceptFillers();
-            }
 
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             // Fires on nearly every pan/zoom redraw (any cover change has temp or removed
@@ -226,11 +226,6 @@ namespace Mapbox.BaseModule.Map
                 Debug.Log($"MapboxMapVisualizer: Load cover={tileCover.Tiles.Count} instant={instantCount} temp={tempCount} removed={_toRemove.Count} active={ActiveTiles.Count}");
             }
 #endif
-
-            if (SuspendTileRequests)
-            {
-                return;
-            }
 
             _retainedTiles.Clear();
             foreach (var tile in tileCover.Tiles)
@@ -485,6 +480,48 @@ namespace Mapbox.BaseModule.Map
             }
         }
 
+        /// <summary>
+        /// FORK yiiportal: Load while tile requests are suspended. A temporary tile would never
+        /// complete, so nothing is kept behind it: tiles leaving the cover are pooled at once and
+        /// each new one draws the nearest ancestor imagery in memory (the caller preloads some).
+        /// </summary>
+        private void LoadFromMemory(TileCover tileCover)
+        {
+            foreach (var tempTile in TempTiles)
+            {
+                tempTile.Children?.Clear();
+            }
+
+            RemoveUnnecessaryTiles(tileCover);
+            foreach (var tileId in _toRemove)
+            {
+                if (ActiveTiles.TryGetValue(tileId, out var tile))
+                {
+                    PoolTile(tile);
+                }
+            }
+
+            PoolDeferredTiles();
+
+            foreach (var tileId in tileCover.Tiles)
+            {
+                if (ActiveTiles.ContainsKey(tileId))
+                {
+                    continue;
+                }
+
+                if (!CreateTileInstant(tileId, out var unityMapTile))
+                {
+                    CreateTempTile(tileId, out unityMapTile);
+                    unityMapTile.Children?.Clear();
+                    ActiveTiles.Add(tileId, unityMapTile);
+                    TempTiles.Add(unityMapTile);
+                }
+
+                ShowTile(unityMapTile);
+            }
+        }
+
         private void RemoveUnnecessaryTiles(TileCover tileCover)
         {
             // Fillers used to be exempt from removal here, but that caused orphaned filler
@@ -519,43 +556,6 @@ namespace Mapbox.BaseModule.Map
             _deferredRemovals.Clear();
         }
 
-
-        private void PoolDeferredTilesExceptFillers()
-        {
-            _fillerScratch.Clear();
-            foreach (var tempTile in TempTiles)
-            {
-                if (tempTile.Children == null)
-                {
-                    continue;
-                }
-
-                foreach (var child in tempTile.Children)
-                {
-                    _fillerScratch.Add(child.UnwrappedTileId);
-                }
-            }
-
-            _deferredRemovals.RemoveWhere(tileId =>
-            {
-                if (_fillerScratch.Contains(tileId))
-                {
-                    return false;
-                }
-
-                if (ActiveTiles.TryGetValue(tileId, out var tile))
-                {
-                    if (tile.LoadingState == LoadingState.Temporary)
-                    {
-                        TempTiles.Remove(tile);
-                    }
-
-                    PoolTile(tile);
-                }
-
-                return true;
-            });
-        }
 
         protected bool DelveInto(UnwrappedTileId tileId, List<UnityMapTile> activeChildren, int recursiveDepth = 3)
         {
