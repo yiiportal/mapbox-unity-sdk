@@ -110,6 +110,12 @@ namespace Mapbox.LocationModule
 		public string TravelMode;
 
 		/// <summary>
+		/// True when the sender explicitly provided TravelMode, including UNSPECIFIED for privacy.
+		/// False for legacy payloads that predate travel mode.
+		/// </summary>
+		public bool HasTravelMode;
+
+		/// <summary>
 		/// Sender-assigned monotonic sequence number; zero when unknown.
 		/// </summary>
 		public uint Sequence;
