@@ -105,6 +105,16 @@ namespace Mapbox.LocationModule
 		public float? Bearing;
 
 		/// <summary>
+		/// Canonical travel-mode wire name, or null/empty when unknown.
+		/// </summary>
+		public string TravelMode;
+
+		/// <summary>
+		/// Sender-assigned monotonic sequence number; zero when unknown.
+		/// </summary>
+		public uint Sequence;
+
+		/// <summary>
 		/// Name of the location provider. GPS or network or 'Null' if not supported by the active location provider.
 		/// </summary>
 		public string Provider;
