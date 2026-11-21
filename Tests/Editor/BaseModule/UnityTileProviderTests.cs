@@ -75,6 +75,24 @@ namespace Mapbox.BaseModuleTests
         }
 
         [Test]
+        public void GetTileCover_AFloorThatDidNotFitIsRetriedOnlyAfterAZoomChange()
+        {
+            var (provider, mapInformation) = CreateBudgetedProvider(4, floor: 14, overrun: 1f);
+            provider.GetTileCover(mapInformation, new TileCover());
+            Assume.That(provider.LastAppliedMaximumZoom, Is.LessThan(14));
+
+            provider.Settings.BudgetZoomFloorOverrun = 1000f;
+            provider.GetTileCover(mapInformation, new TileCover());
+            Assert.Less(provider.LastAppliedMaximumZoom, 14, "same requested zoom: the failed floor is not retried");
+
+            mapInformation.SetInformation(null, zoom: 14.5f);
+            provider.GetTileCover(mapInformation, new TileCover());
+            mapInformation.SetInformation(null, zoom: 15f);
+            provider.GetTileCover(mapInformation, new TileCover());
+            Assert.AreEqual(14, provider.LastAppliedMaximumZoom, "after a zoom change the floor is tried again");
+        }
+
+        [Test]
         public void GetTileCover_ZoomChangeRechecksTheBudgetFromTheRequestedZoom()
         {
             var (provider, mapInformation) = CreateBudgetedProvider(4, floor: 0, overrun: 1f);

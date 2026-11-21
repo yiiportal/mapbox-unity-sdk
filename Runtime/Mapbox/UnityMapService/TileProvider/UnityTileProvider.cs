@@ -112,6 +112,7 @@ namespace Mapbox.UnityMapService.TileProviders
 		private readonly TileCover _recoveryProbeCover = new TileCover();
 		private bool _hasAppliedCover;
 		private int _coverRecoveryHeadroomCount;
+		private int _budgetZoomFloorFailedAt = -1;
 		private const float CoverRecoveryHeadroomRatio = 0.75f;
 		private const int CoverRecoveryStableSampleCount = 30;
 
@@ -200,18 +201,24 @@ namespace Mapbox.UnityMapService.TileProviders
 			     maximumZoom >= minimumMaximumZoom;
 			     maximumZoom--)
 			{
-				if (tileBudget > 0 && maximumZoom < floorZoom && !floorAttempted)
+				if (tileBudget > 0 && maximumZoom < floorZoom && !floorAttempted &&
+				    _budgetZoomFloorFailedAt != requestedMaximumZoom)
 				{
 					// The budget would take the cover below the floor: hold the floor if it fits the
-					// overrun allowance; otherwise the budget wins and detail drops as before.
+					// overrun allowance; otherwise the budget wins and detail drops as before. A floor
+					// that did not fit is not retried until the requested zoom changes, so a hot device
+					// does not build an extra cover on every pan.
 					floorAttempted = true;
 					var floorBudget = Mathf.CeilToInt(tileBudget * Mathf.Max(1f, Settings.BudgetZoomFloorOverrun));
 					if (BuildTileCover(mapInformation, tileCover, floorZoom, floorBudget))
 					{
+						_budgetZoomFloorFailedAt = -1;
 						_coverRecoveryHeadroomCount = 0;
 						ApplyCoverResult(tileCover, requestedMaximumZoom, floorZoom, tileBudget);
 						return true;
 					}
+
+					_budgetZoomFloorFailedAt = requestedMaximumZoom;
 				}
 
 				if (!BuildTileCover(mapInformation, tileCover, maximumZoom, tileBudget))
