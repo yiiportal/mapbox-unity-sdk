@@ -50,6 +50,60 @@ namespace Mapbox.BaseModuleTests
                 provider.LastRequestedMaximumZoom);
         }
 
+        [Test]
+        public void GetTileCover_BudgetHoldsTheZoomFloorWithinTheOverrun()
+        {
+            var (provider, mapInformation) = CreateBudgetedProvider(4, floor: 14, overrun: 1000f);
+
+            Assert.IsTrue(provider.GetTileCover(mapInformation, new TileCover()));
+
+            Assert.AreEqual(15, provider.LastRequestedMaximumZoom);
+            Assert.AreEqual(14, provider.LastAppliedMaximumZoom, "the floor keeps zoom-14 content (landmarks)");
+            Assert.IsTrue(provider.WasTileBudgetApplied);
+        }
+
+        [Test]
+        public void GetTileCover_BudgetWinsWhenTheFloorWouldOverrunTooFar()
+        {
+            var (provider, mapInformation) = CreateBudgetedProvider(4, floor: 14, overrun: 1f);
+            var tileCover = new TileCover();
+
+            Assert.IsTrue(provider.GetTileCover(mapInformation, tileCover));
+
+            Assert.Less(provider.LastAppliedMaximumZoom, 14);
+            Assert.LessOrEqual(tileCover.Tiles.Count, 4);
+        }
+
+        [Test]
+        public void GetTileCover_ZoomChangeRechecksTheBudgetFromTheRequestedZoom()
+        {
+            var (provider, mapInformation) = CreateBudgetedProvider(4, floor: 0, overrun: 1f);
+            provider.GetTileCover(mapInformation, new TileCover());
+            Assume.That(provider.LastAppliedMaximumZoom, Is.LessThan(15));
+
+            provider.Settings.MaximumTileCount = 100000;
+            mapInformation.SetInformation(null, zoom: 16f);
+            provider.GetTileCover(mapInformation, new TileCover());
+
+            Assert.AreEqual(16, provider.LastAppliedMaximumZoom, "a lowered level does not stick across a zoom change");
+        }
+
+        private (UnityTileProvider provider, MapInformation mapInformation) CreateBudgetedProvider(int tileBudget, int floor, float overrun)
+        {
+            var mapInformation = new MapInformation("40.72419,-74.33631", 28.5f, 8f, 15f);
+            mapInformation.Initialize();
+            var settings = new UnityTileProviderSettings(CreateTiltedCamera())
+            {
+                MinimumZoomLevel = 2f,
+                MaximumZoomLevel = 22f,
+                MaximumTileCount = tileBudget,
+                SubdivisionBias = 0.6f,
+                BudgetZoomFloor = floor,
+                BudgetZoomFloorOverrun = overrun
+            };
+            return (new UnityTileProvider(settings), mapInformation);
+        }
+
         private Camera CreateTiltedCamera()
         {
             _cameraObject = new GameObject("UnityTileProviderTests.Camera");

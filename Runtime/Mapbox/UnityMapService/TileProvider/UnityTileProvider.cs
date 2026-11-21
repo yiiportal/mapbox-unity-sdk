@@ -68,6 +68,19 @@ namespace Mapbox.UnityMapService.TileProviders
 		[Tooltip("Maximum tiles in the applied cover. The provider lowers detail to preserve a complete, gap-free cover. Set to 0 for unlimited.")]
 		public int MaximumTileCount;
 
+		/// <summary>
+		/// FORK yiiportal: the budget does not lower a view that asks for at least this zoom below
+		/// it, as long as that cover stays within <see cref="BudgetZoomFloorOverrun"/> times the
+		/// budget. Content that exists only from a zoom up (landmark meshes, zoom 14) then survives
+		/// a tight budget. Zero disables the floor.
+		/// </summary>
+		[Tooltip("Zoom the tile budget holds while the view asks for at least this much detail (0: none).")]
+		public int BudgetZoomFloor;
+
+		/// <summary>FORK yiiportal: how far over the budget, as a multiple, a cover may go to hold <see cref="BudgetZoomFloor"/>.</summary>
+		[Tooltip("Multiple of the tile budget a cover may reach to hold the budget zoom floor.")]
+		public float BudgetZoomFloorOverrun = 2f;
+
 		public UnityTileProviderSettings(Camera cam, float minZoom = 2, float maxZoom = 22)
 		{
 			Camera = cam;
@@ -162,16 +175,21 @@ namespace Mapbox.UnityMapService.TileProviders
 			LastRequestedMaximumZoom = requestedMaximumZoom;
 			WasTileBudgetApplied = false;
 
+			// FORK yiiportal: a lowered detail level sticks only while the requested zoom is unchanged
+			// (so the cover does not flap); a zoom change re-checks the budget from the requested level.
 			var startMaximumZoom = requestedMaximumZoom;
-			if (tileBudget > 0 && _hasAppliedCover)
+			if (tileBudget > 0 && _hasAppliedCover && requestedMaximumZoom == previousRequestedMaximumZoom)
 			{
-				var requestedZoomDelta =
-					requestedMaximumZoom - previousRequestedMaximumZoom;
 				startMaximumZoom = Mathf.Clamp(
-					LastAppliedMaximumZoom + requestedZoomDelta,
+					LastAppliedMaximumZoom,
 					minimumMaximumZoom,
 					requestedMaximumZoom);
 			}
+
+			var floorZoom = Settings.BudgetZoomFloor > 0
+				? Mathf.Clamp(Settings.BudgetZoomFloor, minimumMaximumZoom, requestedMaximumZoom)
+				: minimumMaximumZoom;
+			var floorAttempted = false;
 
 			if (tileBudget == 0)
 			{
@@ -182,6 +200,20 @@ namespace Mapbox.UnityMapService.TileProviders
 			     maximumZoom >= minimumMaximumZoom;
 			     maximumZoom--)
 			{
+				if (tileBudget > 0 && maximumZoom < floorZoom && !floorAttempted)
+				{
+					// The budget would take the cover below the floor: hold the floor if it fits the
+					// overrun allowance; otherwise the budget wins and detail drops as before.
+					floorAttempted = true;
+					var floorBudget = Mathf.CeilToInt(tileBudget * Mathf.Max(1f, Settings.BudgetZoomFloorOverrun));
+					if (BuildTileCover(mapInformation, tileCover, floorZoom, floorBudget))
+					{
+						_coverRecoveryHeadroomCount = 0;
+						ApplyCoverResult(tileCover, requestedMaximumZoom, floorZoom, tileBudget);
+						return true;
+					}
+				}
+
 				if (!BuildTileCover(mapInformation, tileCover, maximumZoom, tileBudget))
 				{
 					_coverRecoveryHeadroomCount = 0;
