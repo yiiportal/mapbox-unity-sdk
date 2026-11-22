@@ -16,14 +16,14 @@ namespace Mapbox.LandmarksModuleTests
         private static readonly CanonicalTileId Side = new(14, 1001, 1000);
 
         [Test]
-        public void HeadingBiasSortsAheadTileBeforeBehindAndSide()
+        public void HeadingBiasEvictsBehindAndSideBeforeAhead()
         {
             var policy = CreatePolicy();
             policy.BeginRetainPass(Center, bearingDegrees: 0f, 100f, new[] { Floor });
 
             var order = policy.GetRetentionOrder()(new[] { Behind, Side, Ahead, Floor }).ToArray();
 
-            CollectionAssert.AreEqual(new[] { Ahead, Side, Behind, Floor }, order);
+            CollectionAssert.AreEqual(new[] { Behind, Side, Ahead, Floor }, order);
         }
 
         [Test]
@@ -37,7 +37,7 @@ namespace Mapbox.LandmarksModuleTests
 
             var order = policy.GetRetentionOrder()(new[] { Behind, Side }).ToArray();
 
-            CollectionAssert.AreEqual(new[] { Behind, Side }, order);
+            CollectionAssert.AreEqual(new[] { Side, Behind }, order);
         }
 
         [Test]
@@ -54,7 +54,7 @@ namespace Mapbox.LandmarksModuleTests
         }
 
         [Test]
-        public void ProtectedFloorSortsLast()
+        public void ProtectedFloorSortsLastForEviction()
         {
             var policy = CreatePolicy();
             policy.BeginRetainPass(Center, bearingDegrees: 0f, 100f, new[] { Floor });

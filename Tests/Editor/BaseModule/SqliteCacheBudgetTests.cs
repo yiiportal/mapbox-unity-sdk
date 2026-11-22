@@ -113,6 +113,25 @@ namespace Mapbox.BaseModuleTests
             Assert.IsFalse(TileExists("mapbox.raster", 16, 2, 2), "over-budget non-pinned tile was retained");
         }
 
+        [Test]
+        public void OrdinaryOverwritePreservesPinnedStatus()
+        {
+            SyncPinnedAdd("mapbox.raster", 16, 5, 5, BudgetBytes - 300);
+
+            // Normal maintenance rewrites tile bytes and expiration, but must not clear pinning.
+            _cache.SyncAdd(
+                "mapbox.raster",
+                new CanonicalTileId(16, 5, 5),
+                Array.Empty<byte>(),
+                string.Empty,
+                "etag",
+                DateTime.UtcNow.AddHours(2),
+                true);
+
+            Assert.IsTrue(TileExists("mapbox.raster", 16, 5, 5));
+            Assert.AreEqual(1, GetPinnedValue("mapbox.raster", 16, 5, 5));
+        }
+
         private static TaskManager CreateTaskManager()
         {
             var taskManager = new TaskManager();
@@ -192,6 +211,20 @@ namespace Mapbox.BaseModuleTests
                     zoom,
                     x,
                     y) == 1;
+            }
+        }
+
+        private int GetPinnedValue(string tilesetName, int zoom, int x, int y)
+        {
+            using (var connection = new SQLiteConnection(_cache.DatabasePath))
+            {
+                return connection.ExecuteScalar<int>(
+                    "SELECT t.pinned FROM tiles t JOIN tilesets ts ON ts.id = t.tile_set " +
+                    "WHERE ts.name = ?1 AND t.zoom_level = ?2 AND t.tile_column = ?3 AND t.tile_row = ?4",
+                    tilesetName,
+                    zoom,
+                    x,
+                    y);
             }
         }
 

@@ -7,10 +7,10 @@ using UnityEngine;
 
 namespace Mapbox.LandmarksModule
 {
-    /// <summary>
-    /// FORK yiiportal: landmark inactive retention is nearest/heading-biased first, with a warm
-    /// exit radius and minimum residency. Hysteresis only delays eviction; admission is immediate.
-    /// </summary>
+        /// <summary>
+        /// FORK yiiportal: landmark eviction is cold/opposite-heading first; protected and warm
+        /// tiles sort last. Minimum residency is an eviction-only delay; admission is immediate.
+        /// </summary>
     public sealed class SpatialRingPolicy
     {
         public const float MinimumResidencySeconds = 15f;
@@ -59,18 +59,17 @@ namespace Mapbox.LandmarksModule
         {
             PruneUnknownTiles(inactiveKeys);
             return inactiveKeys
-                .OrderBy(GetRetentionRank)
-                .ThenByDescending(GetLastSeen)
+                .OrderBy(GetEvictionRank)
                 .ThenBy(tileId => tileId.GetHashCode());
         }
 
-        private int GetRetentionRank(CanonicalTileId tileId)
+        private double GetEvictionRank(CanonicalTileId tileId)
         {
             if (_protectedTiles.Contains(tileId))
-                return 0;
+                return double.PositiveInfinity;
 
             if (!_hasContext)
-                return 1;
+                return 1000d;
 
             double ringDistance = GetRingDistance(tileId);
             _ringDistances[tileId] = ringDistance;
@@ -78,7 +77,7 @@ namespace Mapbox.LandmarksModule
             bool isInsideMinimumResidency =
                 _lastSeenTimes.TryGetValue(tileId, out float lastSeen) &&
                 _retainPassTime - lastSeen < MinimumResidencySeconds;
-            return isInsideExitRing || isInsideMinimumResidency ? 1 : 2;
+            return isInsideExitRing || isInsideMinimumResidency ? 10d + ringDistance : ringDistance;
         }
 
         private double GetRingDistance(CanonicalTileId tileId)
@@ -94,9 +93,16 @@ namespace Mapbox.LandmarksModule
 
             double forwardX = Math.Sin(_bearingRadians);
             double forwardY = -Math.Cos(_bearingRadians);
-            double signedForward = deltaX * forwardX + deltaY * forwardY;
+            double signedForward = GetSignedForwardDistance(deltaX, deltaY);
             double chebyshevDistance = Math.Max(Math.Abs(deltaX), Math.Abs(deltaY));
             return Math.Max(0d, chebyshevDistance - Math.Max(0d, signedForward) * HeadingBiasTiles);
+        }
+
+        private double GetSignedForwardDistance(int deltaX, int deltaY)
+        {
+            double forwardX = Math.Sin(_bearingRadians);
+            double forwardY = -Math.Cos(_bearingRadians);
+            return deltaX * forwardX + deltaY * forwardY;
         }
 
         private float GetLastSeen(CanonicalTileId tileId) =>

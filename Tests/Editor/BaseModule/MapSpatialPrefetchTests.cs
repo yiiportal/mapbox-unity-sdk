@@ -9,10 +9,15 @@ namespace Mapbox.BaseModuleTests
         [Test]
         public void FrustumBufferExpandsOnlyCameraFacingSidePlanes()
         {
-            Assert.IsTrue(UnityTileProvider.ShouldExpandAhead(Vector3.forward, Vector3.forward));
-            Assert.IsFalse(UnityTileProvider.ShouldExpandAhead(Vector3.back, Vector3.forward));
-            Assert.IsTrue(UnityTileProvider.ShouldExpandAhead(Vector3.right, new Vector3(1f, 0f, 1f).normalized));
-            Assert.IsFalse(UnityTileProvider.ShouldExpandAhead(Vector3.left, new Vector3(1f, 0f, 1f).normalized));
+            var cameraPosition = Vector3.zero;
+            var forward = Vector3.forward;
+            var aheadPlane = new Plane(Vector3.down, new Vector3(0f, 0f, 2f));
+            var behindPlane = new Plane(Vector3.up, new Vector3(0f, 0f, -2f));
+            var sidePlane = new Plane(Vector3.right, Vector3.zero);
+
+            Assert.IsTrue(UnityTileProvider.ShouldExpandAhead(aheadPlane, cameraPosition, forward, 1f));
+            Assert.IsFalse(UnityTileProvider.ShouldExpandAhead(behindPlane, cameraPosition, forward, 1f));
+            Assert.IsFalse(UnityTileProvider.ShouldExpandAhead(sidePlane, cameraPosition, forward, 1f));
         }
     }
 }

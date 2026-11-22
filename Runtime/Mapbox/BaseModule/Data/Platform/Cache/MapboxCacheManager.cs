@@ -349,6 +349,14 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             }
         }
 
+        public bool HasUnexpiredTile(string tilesetId, CanonicalTileId tileId)
+        {
+            bool hasIndexRow = _sqLiteCache is SqliteCache sqliteCache &&
+                               sqliteCache.HasUnexpiredTile(tilesetId, tileId);
+            bool hasRasterFile = _textureFileCache == null || _textureFileCache.Exists(tileId, tilesetId);
+            return hasIndexRow && hasRasterFile;
+        }
+
         public TypeMemoryCache<T> RegisterMemoryCache<T>(int owner, int cacheSize = 100) where T : MapboxTileData
         {
             return _memoryCache.RegisterType<T>(owner, cacheSize);

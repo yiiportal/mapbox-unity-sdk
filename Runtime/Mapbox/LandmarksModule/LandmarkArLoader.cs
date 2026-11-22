@@ -1,9 +1,12 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Platform.Cache;
+using Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache;
 using Mapbox.BaseModule.Data.Tasks;
 using Mapbox.BaseModule.Data.Tiles;
 using Mapbox.BaseModule.Data.Vector2d;
@@ -19,6 +22,7 @@ namespace Mapbox.LandmarksModule
     {
         private const int RequestTimeoutSeconds = 20;
         private const float DefaultTableFootprintMeters = 0.75f;
+        private static MapboxCacheManager _fallbackCacheManager;
 
         public sealed class LandmarkArTileCache
         {
@@ -253,8 +257,8 @@ namespace Mapbox.LandmarksModule
                 yield break;
             }
 
-            // FORK yiiportal: reuse the map's landmark disk cache in AR without retaining tile bytes.
-            var diskCache = MapboxCacheManager.Shared;
+            // FORK yiiportal: reuse the landmark disk cache even when AR opens before the Map.
+            var diskCache = GetOrCreateFallbackCacheManager();
             Task<BuildingData> diskLookup = diskCache?.GetBlobAsync<BuildingData>(
                 tileId,
                 Constants.Map.LandmarksTilesetId);
@@ -320,33 +324,6 @@ namespace Mapbox.LandmarksModule
             }
 
             callback(data);
-        }
-
-        private static bool TryGetExpirationDate(UnityWebRequest request, out DateTime expirationDate)
-        {
-            expirationDate = DateTime.UtcNow;
-            var cacheControl = request.GetResponseHeader("Cache-Control");
-            if (string.IsNullOrEmpty(cacheControl))
-            {
-                return false;
-            }
-
-            foreach (var directive in cacheControl.Split(','))
-            {
-                var parts = directive.Split('=');
-                if (parts.Length != 2 ||
-                    !string.Equals(parts[0].Trim(), "max-age", StringComparison.OrdinalIgnoreCase) ||
-                    !int.TryParse(parts[1].Trim(), out int maxAgeSeconds) ||
-                    maxAgeSeconds <= 0)
-                {
-                    continue;
-                }
-
-                expirationDate = DateTime.UtcNow.AddSeconds(maxAgeSeconds);
-                return true;
-            }
-
-            return false;
         }
 
         private static GameObject ExtractLandmark(
@@ -433,6 +410,82 @@ namespace Mapbox.LandmarksModule
             }
 
             return false;
+        }
+
+        private static bool TryGetExpirationDate(UnityWebRequest request, out DateTime expirationDate)
+        {
+            expirationDate = DateTime.UtcNow;
+            var cacheControl = request.GetResponseHeader("Cache-Control");
+            if (!string.IsNullOrEmpty(cacheControl) &&
+                cacheControl.Split(',').Any(directive =>
+                    directive.Trim().Equals("no-store", StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(cacheControl))
+            {
+                expirationDate = DateTime.UtcNow.AddDays(7);
+                return true;
+            }
+
+            foreach (var directive in cacheControl.Split(','))
+            {
+                var parts = directive.Split('=');
+                if (parts.Length != 2 ||
+                    !string.Equals(parts[0].Trim(), "max-age", StringComparison.OrdinalIgnoreCase) ||
+                    !int.TryParse(parts[1].Trim(), out int maxAgeSeconds) ||
+                    maxAgeSeconds <= 0)
+                {
+                    continue;
+                }
+
+                expirationDate = DateTime.UtcNow.AddSeconds(maxAgeSeconds);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static MapboxCacheManager GetOrCreateFallbackCacheManager()
+        {
+            if (_fallbackCacheManager != null)
+            {
+                return _fallbackCacheManager;
+            }
+
+            var taskManager = new TaskManager();
+            taskManager.Initialize();
+            var unityContext = new UnityContext { TaskManager = taskManager };
+#if UNITY_IOS && !UNITY_EDITOR
+            string cacheRoot = Application.temporaryCachePath;
+            string pinnedRoot = Application.persistentDataPath;
+#else
+            string cacheRoot = Application.persistentDataPath;
+            string pinnedRoot = Application.persistentDataPath;
+#endif
+            var pinnedCache = new MapboxCacheManager(
+                unityContext,
+                new MemoryCache(),
+                new FileCache(taskManager, pinnedRoot, "Pinned"),
+                new SqliteCache(taskManager, pinnedRoot, null, null, null, "Pinned"));
+            var cacheManager = new MapboxCacheManager(
+                unityContext,
+                new MemoryCache(),
+                new FileCache(taskManager, cacheRoot, string.Empty),
+                new SqliteCache(
+                    taskManager,
+                    cacheRoot,
+                    new SqliteCacheBudget(
+                        new Dictionary<string, long> { ["landmarks"] = 150L * 1024L * 1024L },
+                        150L * 1024L * 1024L),
+                    tilesetId => tilesetId == Constants.Map.LandmarksTilesetId ? "landmarks" : "vector"))
+            {
+                PinnedCacheManager = pinnedCache
+            };
+
+            _fallbackCacheManager = cacheManager;
+            return cacheManager;
         }
 
         private static bool RingContains(Vector2[] ring, Vector2 point)

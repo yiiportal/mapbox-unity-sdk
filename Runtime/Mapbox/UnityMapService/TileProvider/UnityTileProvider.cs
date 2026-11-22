@@ -310,10 +310,16 @@ namespace Mapbox.UnityMapService.TileProviders
 			LogTileBudgetTransition(tileBudget);
 		}
 
-		// FORK yiiportal: heading-biased prefetch selects the camera-facing side of each side plane.
-		public static bool ShouldExpandAhead(Vector3 planeNormal, Vector3 cameraForward)
+		// FORK yiiportal: heading-biased prefetch expands only planes whose projected ahead point
+		// lies outside the current frustum; side planes containing that point are left unchanged.
+		public static bool ShouldExpandAhead(
+			Plane plane,
+			Vector3 cameraPosition,
+			Vector3 cameraForward,
+			float frustumBuffer)
 		{
-			return Vector3.Dot(planeNormal, cameraForward) > 0f;
+			Vector3 aheadPoint = cameraPosition + cameraForward * (frustumBuffer * 4f);
+			return plane.GetDistanceToPoint(aheadPoint) > frustumBuffer * 0.25f;
 		}
 
 		private bool BuildTileCover(
@@ -344,7 +350,7 @@ namespace Mapbox.UnityMapService.TileProviders
 			{
 				for (int i = 0; i < 4; i++)
 				{
-					if (ShouldExpandAhead(_planes[i].normal, camForward))
+					if (ShouldExpandAhead(_planes[i], camPos, camForward, Settings.FrustumBuffer))
 					{
 						_planes[i].distance += Settings.FrustumBuffer;
 					}

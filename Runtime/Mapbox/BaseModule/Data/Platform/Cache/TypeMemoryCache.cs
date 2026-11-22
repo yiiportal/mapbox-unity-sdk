@@ -186,13 +186,13 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 
                 if (_inactiveList.Count > _inactiveCapacity)
                 {
-                    var last = SelectEvictionCandidate();
-                    _inactiveList.RemoveLast();
-                    if (last != null)
+                    var candidate = SelectEvictionCandidate();
+                    if (candidate != null)
                     {
-                        _inactiveMap.Remove(last.Value.key);
-                        CacheItemDisposed(last.Value.key);
-                        last.Value.value.Dispose();
+                        _inactiveList.Remove(candidate);
+                        _inactiveMap.Remove(candidate.Value.key);
+                        CacheItemDisposed(candidate.Value.key);
+                        candidate.Value.value.Dispose();
                     }
                 }
             }
@@ -235,28 +235,19 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             {
                 keys[keyIndex++] = entry.key;
             }
-            var retentionOrder = (_evictionOrder(keys) ?? DefaultRetentionOrder(keys)).ToList();
-            var retentionSet = new HashSet<CanonicalTileId>(retentionOrder);
-            var unorderedKey = keys.FirstOrDefault(key => !retentionSet.Contains(key));
-            if (_inactiveMap.TryGetValue(unorderedKey, out var unorderedNode))
-                return unorderedNode;
-
-            CanonicalTileId evictionKey = default;
-            foreach (var key in retentionOrder)
+            var evictionOrder = (_evictionOrder(keys) ?? DefaultEvictionOrder(keys)).ToList();
+            foreach (var key in evictionOrder)
             {
                 if (_inactiveMap.ContainsKey(key))
                 {
-                    evictionKey = key;
-                    break;
+                    return _inactiveMap[key];
                 }
             }
 
-            return _inactiveMap.TryGetValue(evictionKey, out var node)
-                ? node
-                : _inactiveList.Last;
+            return _inactiveList.Last;
         }
 
-        private static IEnumerable<CanonicalTileId> DefaultRetentionOrder(
+        private static IEnumerable<CanonicalTileId> DefaultEvictionOrder(
             IReadOnlyCollection<CanonicalTileId> inactiveKeys)
         {
             return inactiveKeys.Reverse();

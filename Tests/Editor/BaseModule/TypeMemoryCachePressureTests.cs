@@ -44,12 +44,12 @@ namespace Mapbox.BaseModuleTests
             cache.Add(CreateTile(3));
             cache.RetainTiles(new HashSet<CanonicalTileId>());
 
-            // Keep tile3 and tile1; therefore tile2 is the ring policy's victim despite LRU age.
+            // Eviction order puts tile2 first, overriding LRU age.
             cache.SetEvictionOrder(keys => new[]
             {
+                new CanonicalTileId(14, 2, 2),
                 new CanonicalTileId(14, 3, 3),
-                new CanonicalTileId(14, 1, 1),
-                new CanonicalTileId(14, 2, 2)
+                new CanonicalTileId(14, 1, 1)
             });
 
             Assert.AreEqual(2, cache.InactiveCount);

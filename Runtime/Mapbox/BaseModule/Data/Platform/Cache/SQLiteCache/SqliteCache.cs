@@ -430,6 +430,23 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			}
 		}
 
+		public bool HasUnexpiredTile(string tilesetName, CanonicalTileId tileId)
+		{
+			lock (_lock)
+			{
+				if (!FetchSqliteEntry(tileId, tilesetName, out var tile) || tile == null)
+				{
+					return false;
+				}
+
+				bool hasBytes = tile.tile_data is { Length: > 0 } ||
+				                !string.IsNullOrEmpty(tile.tile_path);
+				return hasBytes &&
+				       (!tile.expirationDate.HasValue ||
+				        tile.expirationDate.Value >= (int) UnixTimestampUtils.To(DateTime.UtcNow));
+			}
+		}
+
 		public virtual T Get<T>(string tilesetName, CanonicalTileId tileId, T data = null) where T : MapboxTileData, new()
 		{
 			lock (_lock)
@@ -670,15 +687,15 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		{
 			lock (_lock)
 			{
+				// Preserve pinned status when ordinary cache maintenance rewrites an existing row.
 				var query = "UPDATE tiles " +
-				            "SET tile_data = ?1, tile_path = ?2, timestamp = ?3, tile_size = ?4, last_access = ?3, pinned = ?5, expirationDate = ?6, etag = ?7 " +
-				            "WHERE tile_set = ?8 AND zoom_level = ?9 AND tile_column = ?10 AND tile_row = ?11 ";
+				            "SET tile_data = ?1, tile_path = ?2, timestamp = ?3, tile_size = ?4, last_access = ?3, expirationDate = ?5, etag = ?6 " +
+				            "WHERE tile_set = ?7 AND zoom_level = ?8 AND tile_column = ?9 AND tile_row = ?10 ";
 				var command = _sqlite.CreateCommand(query,
 					newTile.tile_data,
 					newTile.tile_path,
 					newTile.timestamp,
 					newTile.tile_size,
-					newTile.pinned,
 					newTile.expirationDate,
 					newTile.etag,
 					newTile.tile_set,
