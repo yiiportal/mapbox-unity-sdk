@@ -61,6 +61,10 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		[Preserve]
 		public int last_access { get; set; }
 
+		// FORK yiiportal: RH7 pinning survives family byte budgets.
+		[Preserve]
+		public int pinned { get; set; }
+
 		[Ignore]
 		public DateTime expirationDateFormatted  { get; set; }
 	}

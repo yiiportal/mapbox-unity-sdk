@@ -31,6 +31,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         public Action<TaskWrapper> CacheTaskFinished = (t) => { };
 
         public static MapboxCacheManager Shared { get; private set; }
+        public MapboxCacheManager PinnedCacheManager { get; set; }
         
         protected IMemoryCache _memoryCache;
         protected IFileCache _textureFileCache;
@@ -107,6 +108,12 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             }
 
             var cached = await Task.Run(() => _sqLiteCache.Get(tilesetId, tileId, data));
+            if ((cached == null || cached.Data == null || cached.Data.Length == 0) &&
+                PinnedCacheManager != null)
+            {
+                cached = await PinnedCacheManager.GetBlobAsync(tileId, tilesetId, data);
+            }
+
             if (cached == null || cached.Data == null || cached.Data.Length == 0)
             {
                 return null;
@@ -154,33 +161,36 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         
         public virtual void GetImageAsync<T>(CanonicalTileId tileId, string tilesetId, bool isTextureNonreadable, Action<T> callback) where T : RasterData, new()
         {
+            bool found = false;
+            void Complete(T item)
+            {
+                if (!found)
+                {
+                    found = true;
+                    callback(item);
+                }
+            }
+
             if (_textureFileCache != null)
             {
                 var fileExists = _textureFileCache.GetAsync<T>(
                     tileId,
                     tilesetId,
                     isTextureNonreadable,
-                    (textureCacheItem) =>
-                    {
-                        if (textureCacheItem.HasError)
-                        {
-                            callback(null);
-                        }
-                        else
-                        {
+                    item => Complete(item != null && item.HasError ? null : item));
 
-                            callback(textureCacheItem);
-                        }
-                    });
-                
-                if (!fileExists)
+                if (!fileExists && PinnedCacheManager != null)
+                {
+                    PinnedCacheManager.GetImageAsync<T>(tileId, tilesetId, isTextureNonreadable, Complete);
+                }
+                else if (!fileExists)
                 {
                     callback(null);
                 }
             }
             else
             {
-                callback(null);    
+                callback(null);
             }
         }
         
@@ -258,13 +268,26 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         {
             if (_textureFileCache != null)
             {
-                // Mirrors the HasError translation GetImageAsync does: a read that errored is a
-                // cache miss, not a hit that happens to carry no texture. Without this the
-                // coroutine path handed the unusable item back as if it were real, while its
-                // async sibling correctly reported nothing - the two disagreeing on the same
-                // question is how a texture-less item got into the memory cache in the first place.
+                T normalItem = null;
                 yield return _textureFileCache.GetCoroutine<T>(tileId, tilesetId, isTextureNonreadable,
-                    (item) => callback(item != null && item.HasError ? null : item));
+                    (item) => normalItem = item != null && item.HasError ? null : item);
+                if (normalItem != null)
+                {
+                    callback(normalItem);
+                    yield break;
+                }
+
+                if (PinnedCacheManager != null)
+                {
+                    yield return PinnedCacheManager.GetImageCoroutine<T>(
+                        tileId,
+                        tilesetId,
+                        isTextureNonreadable,
+                        item => callback(item != null && item.HasError ? null : item));
+                    yield break;
+                }
+
+                callback(null);
             }
             else
             {
@@ -292,6 +315,17 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             _taskManager.AddTask(task, priority);
             while(task.IsCompleted == false) yield return null;
             
+            if (task.DataResult == null && PinnedCacheManager != null)
+            {
+                yield return PinnedCacheManager.GetBlobCoroutine(
+                    tileId,
+                    tilesetid,
+                    priority,
+                    data,
+                    result => callback?.Invoke(result));
+                yield break;
+            }
+
             callback?.Invoke(task.DataResult);
         }
 
@@ -305,6 +339,14 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         public void RemoveData(string tilesetId, int zoom, int x, int y)
         {
             _sqLiteCache.RemoveData(tilesetId, zoom, x, y);
+        }
+
+        public void SetPinned(string tilesetId, CanonicalTileId tileId, bool pinned)
+        {
+            if (_sqLiteCache is SqliteCache sqliteCache)
+            {
+                sqliteCache.SetPinned(tilesetId, tileId, pinned);
+            }
         }
 
         public TypeMemoryCache<T> RegisterMemoryCache<T>(int owner, int cacheSize = 100) where T : MapboxTileData

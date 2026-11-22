@@ -102,6 +102,17 @@ namespace Mapbox.BaseModuleTests
             Assert.AreEqual(0, _cache.TileCount("mapbox.raster"));
         }
 
+        [Test]
+        public void PinnedRowsSurviveByteBudgetPrune()
+        {
+            SyncPinnedAdd("mapbox.raster", 16, 1, 1, BudgetBytes - 300);
+            SyncAdd("mapbox.raster", 16, 2, 2, BudgetBytes - 300, forceInsert: true);
+            TriggerPruneWithZeroByteTiles("mapbox.raster", 21);
+
+            Assert.IsTrue(TileExists("mapbox.raster", 16, 1, 1), "pinned tile was evicted");
+            Assert.IsFalse(TileExists("mapbox.raster", 16, 2, 2), "over-budget non-pinned tile was retained");
+        }
+
         private static TaskManager CreateTaskManager()
         {
             var taskManager = new TaskManager();
@@ -131,6 +142,35 @@ namespace Mapbox.BaseModuleTests
                 DateTime.UtcNow.AddHours(1),
                 forceInsert,
                 sizeBytes);
+        }
+
+        private void SyncPinnedAdd(string tilesetName, int zoom, int x, int y, long sizeBytes)
+        {
+            _cache.SyncAdd(
+                tilesetName,
+                new CanonicalTileId(zoom, x, y),
+                Array.Empty<byte>(),
+                string.Empty,
+                "etag",
+                DateTime.UtcNow.AddHours(1),
+                true,
+                sizeBytes,
+                true);
+        }
+
+        private void TriggerPruneWithZeroByteTiles(string tilesetName, int tileCount)
+        {
+            for (int i = 0; i < tileCount; i++)
+            {
+                _cache.SyncAdd(
+                    tilesetName,
+                    new CanonicalTileId(16, 20 + i, 20 + i),
+                    Array.Empty<byte>(),
+                    string.Empty,
+                    "etag",
+                    DateTime.UtcNow.AddHours(1),
+                    false);
+            }
         }
 
         private void ReadThenTouchExistingTile(string tilesetName, int zoom, int x, int y)

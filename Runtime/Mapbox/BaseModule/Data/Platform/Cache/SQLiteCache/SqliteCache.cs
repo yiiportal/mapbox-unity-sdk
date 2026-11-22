@@ -24,7 +24,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		protected string CacheRootFolderName = "Mapbox/SqliteCache";
 		protected string cacheFileName = "cache.db";
 		protected TaskManager _taskManager;
-		protected const int DATABASE_CODE_VERSION = 3;
+		protected const int DATABASE_CODE_VERSION = 4;
 
 		public uint MaxCacheSize => _maxTileCount;
 
@@ -134,6 +134,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 	timestamp    INTEGER NOT NULL,
 				tile_size    INTEGER NOT NULL,
 				last_access  INTEGER NOT NULL,
+					pinned       INTEGER NOT NULL,
 	etag         TEXT,
 	expirationDate INTEGER,
 	CONSTRAINT tileConstraint UNIQUE (tile_set, zoom_level, tile_column, tile_row)
@@ -146,6 +147,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 					_sqlite.Execute(cmdIdxTimestamp);
 					string cmdIdxLastAccess = "CREATE INDEX idx_last_access ON tiles (last_access ASC);";
 					_sqlite.Execute(cmdIdxLastAccess);
+					string cmdIdxPinned = "CREATE INDEX idx_pinned ON tiles (pinned ASC, last_access ASC);";
+					_sqlite.Execute(cmdIdxPinned);
 				}
 
 				List<SQLiteConnection.ColumnInfo> colInfoOfflineMaps = _sqlite.GetTableInfo(typeof(offlineMaps).Name);
@@ -199,6 +202,72 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			SyncAdd(tilesetName, tileId, data, path, etag, expirationDate, forceInsert, -1);
 		}
 
+		public void SyncAdd(
+			string tilesetName,
+			CanonicalTileId tileId,
+			byte[] data,
+			string path,
+			string etag,
+			DateTime? expirationDate,
+			bool forceInsert,
+			long tileSizeBytes,
+			bool pinned)
+		{
+			lock (_lock)
+			{
+				try
+				{
+					if (TileExists(tilesetName, tileId) && !forceInsert)
+					{
+						return;
+					}
+
+					int? tilesetId = GetOrCreateTilesetId(tilesetName);
+					if (tilesetId < 0)
+					{
+						Debug.LogErrorFormat("could not get tilesetID for [{0}] tile: {1}", tilesetName, tileId);
+						return;
+					}
+
+					var nowInUnix = (int) UnixTimestampUtils.To(DateTime.Now);
+					var physicalSizeBytes = tileSizeBytes >= 0 ? tileSizeBytes : data?.Length ?? 0;
+					var newTile = new tiles
+					{
+						tile_set = tilesetId.Value,
+						zoom_level = tileId.Z,
+						tile_column = tileId.X,
+						tile_row = tileId.Y,
+						tile_data = data,
+						tile_path = path,
+						timestamp = nowInUnix,
+						tile_size = (int) physicalSizeBytes,
+						last_access = nowInUnix,
+						pinned = pinned ? 1 : 0,
+						etag = etag,
+						expirationDate = expirationDate.HasValue ? (int) UnixTimestampUtils.To(expirationDate.Value) : nowInUnix
+					};
+					int rowsAffected = UpdateTile(newTile);
+					if (rowsAffected == 0)
+					{
+						rowsAffected = (int) InsertTile(newTile);
+						if (rowsAffected > 0)
+						{
+							_pruneCacheCounter++;
+						}
+					}
+
+					if (rowsAffected < 1)
+					{
+						throw new Exception(string.Format("tile [{0} / {1}] was not inserted, rows affected:{2}", tilesetName, tileId, rowsAffected));
+					}
+				}
+				catch (Exception ex)
+				{
+					Debug.LogErrorFormat("Error inserting pinned={4} {0} {1} (extended={2}) {3} ", tilesetName, tileId, ex is SQLiteException ? SQLite3.ExtendedErrCode(_sqlite.Handle).ToString() : "n/a", ex, pinned);
+				}
+			}
+		}
+
 		// FORK yiiportal: retain the physical tile size for byte-budget pruning.
 		public void SyncAdd(
 			string tilesetName,
@@ -244,8 +313,9 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 							tile_data = data,
 							tile_path = path,
 							timestamp = nowInUnix,
-							tile_size = (int) physicalSizeBytes,
-							last_access = nowInUnix,
+				tile_size = (int) physicalSizeBytes,
+				last_access = nowInUnix,
+				pinned = 0,
 							etag = etag,
 							expirationDate = expirationDate.HasValue ? (int) UnixTimestampUtils.To(expirationDate.Value) : nowInUnix
 						};
@@ -337,6 +407,27 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 						return true;
 					}
 				}, 4);
+		}
+
+		// FORK yiiportal: RH7 pinned rows are exempt from every disk-budget prune.
+		public void SetPinned(string tilesetName, CanonicalTileId tileId, bool pinned)
+		{
+			lock (_lock)
+			{
+				int? tilesetId = getTilesetId(tilesetName);
+				if (!tilesetId.HasValue)
+				{
+					return;
+				}
+
+				_sqlite.Execute(
+					"UPDATE tiles SET pinned = ?1 WHERE tile_set = ?2 AND zoom_level = ?3 AND tile_column = ?4 AND tile_row = ?5",
+					pinned ? 1 : 0,
+					tilesetId.Value,
+					tileId.Z,
+					tileId.X,
+					tileId.Y);
+			}
 		}
 
 		public virtual T Get<T>(string tilesetName, CanonicalTileId tileId, T data = null) where T : MapboxTileData, new()
@@ -580,13 +671,14 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			lock (_lock)
 			{
 				var query = "UPDATE tiles " +
-				            "SET tile_data = ?1, tile_path = ?2, timestamp = ?3, tile_size = ?4, last_access = ?3, expirationDate = ?5, etag = ?6 " +
-				            "WHERE tile_set = ?7 AND zoom_level = ?8 AND tile_column = ?9 AND tile_row = ?10 ";
+				            "SET tile_data = ?1, tile_path = ?2, timestamp = ?3, tile_size = ?4, last_access = ?3, pinned = ?5, expirationDate = ?6, etag = ?7 " +
+				            "WHERE tile_set = ?8 AND zoom_level = ?9 AND tile_column = ?10 AND tile_row = ?11 ";
 				var command = _sqlite.CreateCommand(query,
 					newTile.tile_data,
 					newTile.tile_path,
 					newTile.timestamp,
 					newTile.tile_size,
+					newTile.pinned,
 					newTile.expirationDate,
 					newTile.etag,
 					newTile.tile_set,
@@ -600,8 +692,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		private long InsertTile(tiles newTile)
 		{
 			var query = "INSERT INTO tiles " +
-			            "(tile_set, zoom_level, tile_column, tile_row, tile_data, tile_path, timestamp, tile_size, last_access, expirationDate, etag)" +
-			            "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
+			            "(tile_set, zoom_level, tile_column, tile_row, tile_data, tile_path, timestamp, tile_size, last_access, pinned, expirationDate, etag)" +
+			            "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 
 			var command = _sqlite.CreateCommand(query,
 				newTile.tile_set,
@@ -613,6 +705,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 				newTile.timestamp,
 				newTile.tile_size,
 				newTile.last_access,
+				newTile.pinned,
 				newTile.expirationDate,
 				newTile.etag);
 			var rowsChanged = command.ExecuteNonQuery();
@@ -771,7 +864,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 
 					// no 'ORDER BY' or 'LIMIT' possible if sqlite hasn't been compiled with 'SQLITE_ENABLE_UPDATE_DELETE_LIMIT'
 					// https://sqlite.org/compile.html#enable_update_delete_limit
-					_sqlite.Execute("DELETE FROM tiles WHERE rowid IN ( SELECT rowid FROM tiles ORDER BY timestamp ASC LIMIT ? );", toDelete);
+					_sqlite.Execute("DELETE FROM tiles WHERE pinned = 0 AND rowid IN ( SELECT rowid FROM tiles WHERE pinned = 0 ORDER BY timestamp ASC LIMIT ? );", toDelete);
 				}
 				catch (Exception ex)
 				{
@@ -826,7 +919,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 
 			var bytesToDelete = usedBytes - budgetBytes;
 			var query = "SELECT id, tile_path, tile_size FROM tiles " +
-			            $"WHERE tile_set IN ({tilesetIdFilter}) " +
+			            $"WHERE tile_set IN ({tilesetIdFilter}) AND pinned = 0 " +
 			            "ORDER BY last_access ASC, timestamp ASC, id ASC";
 			var candidates = _sqlite.CreateCommand(query).ExecuteQuery<tiles>();
 			var deletedBytes = 0L;
