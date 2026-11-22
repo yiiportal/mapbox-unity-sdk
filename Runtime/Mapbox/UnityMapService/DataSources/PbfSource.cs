@@ -102,6 +102,12 @@ namespace Mapbox.UnityMapService.DataSources
             _memoryCache.ClearInactive();
         }
 
+        // FORK yiiportal: expose the inactive budget to the map pressure ladder.
+        public override void SetInactiveCapacity(int capacity)
+        {
+            _memoryCache.SetInactiveCapacity(capacity);
+        }
+
         public virtual void ClearMemoryCache()
         {
             _memoryCache.OnDestroy();

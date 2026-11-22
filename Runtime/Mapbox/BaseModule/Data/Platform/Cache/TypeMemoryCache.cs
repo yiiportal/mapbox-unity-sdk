@@ -39,7 +39,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 
         public Action<CanonicalTileId> CacheItemDisposed = (t) => { };
         
-        private readonly int _inactiveCapacity;
+        private int _inactiveCapacity;
         
         // Active list
         private readonly Dictionary<CanonicalTileId, T> _active;
@@ -54,7 +54,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         public TypeMemoryCache(int cacheSize = 100)
         {
             mainThreadId = Thread.CurrentThread.ManagedThreadId;
-            if (cacheSize <= 0)
+            if (cacheSize < 0)
                 throw new ArgumentException("Inactive capacity must be > 0");
 
             _inactiveCapacity = cacheSize;
@@ -222,6 +222,25 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             }
             _inactiveList.Clear();
             _inactiveMap.Clear();
+        }
+
+        // FORK yiiportal: the pressure ladder lowers the landmark inactive budget at runtime.
+        public void SetInactiveCapacity(int capacity)
+        {
+            if (!OnMainThread(nameof(SetInactiveCapacity)))
+                return;
+            if (capacity < 0)
+                throw new ArgumentException("Inactive capacity cannot be negative", nameof(capacity));
+
+            _inactiveCapacity = capacity;
+            while (_inactiveList.Count > _inactiveCapacity)
+            {
+                var last = _inactiveList.Last;
+                _inactiveList.RemoveLast();
+                _inactiveMap.Remove(last.Value.key);
+                CacheItemDisposed(last.Value.key);
+                last.Value.value.Dispose();
+            }
         }
 
         public IEnumerable<T> GetAllDatas()

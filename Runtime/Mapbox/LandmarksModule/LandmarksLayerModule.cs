@@ -110,6 +110,28 @@ namespace Mapbox.LandmarksModule
 		/// </summary>
 		public bool SuspendNewLoads { get; set; }
 
+		// FORK yiiportal: the landmark visible floor survives pressure until L4 or thermal Critical.
+		private readonly HashSet<CanonicalTileId> _protectedTiles = new();
+
+		public void SetProtectedTiles(IEnumerable<CanonicalTileId> tiles)
+		{
+			_protectedTiles.Clear();
+			foreach (var tileId in tiles ?? Enumerable.Empty<CanonicalTileId>())
+			{
+				_protectedTiles.Add(tileId);
+			}
+		}
+
+		public IReadOnlyCollection<CanonicalTileId> ProtectedTiles => _protectedTiles;
+
+		internal static bool ShouldRetainUnderSuspension(
+			CanonicalTileId tileId,
+			HashSet<CanonicalTileId> protectedTiles,
+			Predicate<CanonicalTileId> isUnresolved)
+		{
+			return protectedTiles.Contains(tileId) || !isUnresolved(tileId);
+		}
+
 		// FORK yiiportal: suppression telemetry classifies retained z14 tiles with no visible mesh.
 		public bool HasVisibleVisuals(CanonicalTileId tileId)
 		{
@@ -126,6 +148,9 @@ namespace Mapbox.LandmarksModule
 
 		public bool HasTransientFetchFailure(CanonicalTileId tileId) =>
 			_buildingSource.HasTransientFailure(tileId);
+
+		public void SetInactiveCapacity(int capacity) =>
+			_buildingSource.SetInactiveCapacity(capacity);
 
 		private readonly Predicate<CanonicalTileId> _isUnresolved;
 
@@ -217,7 +242,8 @@ namespace Mapbox.LandmarksModule
 			UpdateRetainedList(retainedTiles);
 			if (SuspendNewLoads)
 			{
-				_retainedBuildingTiles.RemoveWhere(_isUnresolved);
+				_retainedBuildingTiles.RemoveWhere(tileId =>
+					!ShouldRetainUnderSuspension(tileId, _protectedTiles, _isUnresolved));
 			}
 
 			// FORK yiiportal: upstream only cancels a decode when the tile's data is evicted; a
@@ -261,6 +287,14 @@ namespace Mapbox.LandmarksModule
 		/// RetainTiles that wants them.
 		/// </summary>
 		public void ReleaseAll()
+		{
+			_protectedTiles.Clear();
+			RetainTiles(NoTiles);
+			_buildingSource.ClearInactiveData();
+		}
+
+		// FORK yiiportal: L3 releases warm and visible P3 while preserving only the floor/selected set.
+		public void ReleaseAllExceptProtected()
 		{
 			RetainTiles(NoTiles);
 			_buildingSource.ClearInactiveData();
@@ -309,6 +343,8 @@ namespace Mapbox.LandmarksModule
 				{
 					_retainedBuildingTiles.Add(targetId);
 				}
+
+			_retainedBuildingTiles.UnionWith(_protectedTiles);
 			}
 		}
 

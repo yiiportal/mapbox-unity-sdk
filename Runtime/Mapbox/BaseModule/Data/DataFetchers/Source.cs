@@ -75,6 +75,9 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 		public virtual bool IsBackingOff(CanonicalTileId tileId) => false;
 
 		public virtual bool HasTransientFailure(CanonicalTileId tileId) => false;
+
+		// FORK yiiportal: pressure levels change the number of recently visible tiles retained.
+		public virtual void SetInactiveCapacity(int capacity) { }
 		
 		//move this to imageSource after merging imagery&terrain modules
 		public virtual void DownloadAndCacheBaseTiles() { }
