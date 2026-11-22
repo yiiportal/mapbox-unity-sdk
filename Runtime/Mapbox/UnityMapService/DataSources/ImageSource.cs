@@ -90,6 +90,7 @@ namespace Mapbox.UnityMapService.DataSources
             {
                 CacheItemDisposed(t);
             };
+            _memoryCache.SetEvictionOrder(OrderRasterEviction);
         }
         
         public override void LoadTile(CanonicalTileId requestedDataTileId)
@@ -236,6 +237,37 @@ namespace Mapbox.UnityMapService.DataSources
             double normalizedX = (double)deltaX / tileCount;
             double normalizedY = (double)deltaY / tileCount;
             return normalizedX * normalizedX + normalizedY * normalizedY;
+        }
+
+        // FORK yiiportal: evict by z10 area and radial distance so panning back remains coherent.
+        private IEnumerable<CanonicalTileId> OrderRasterEviction(
+            IReadOnlyCollection<CanonicalTileId> inactiveKeys)
+        {
+            if (!_hasRequestPriorityCenter)
+            {
+                return inactiveKeys.Reverse();
+            }
+
+            return inactiveKeys
+                .OrderBy(tileId => tileId.Z <= 4 ? double.MaxValue : GetZ10AreaDistance(tileId))
+                .ThenBy(tileId => tileId.Z)
+                .ThenBy(tileId => tileId.GetHashCode());
+        }
+
+        private double GetZ10AreaDistance(CanonicalTileId tileId)
+        {
+            var tileCenter = tileId.Z >= 10
+                ? tileId.ParentAt(10)
+                : tileId;
+            var centerTile = Conversions.LatitudeLongitudeToTileId(
+                _requestPriorityCenter,
+                10).Canonical;
+            int tileCount = 1 << 10;
+            int deltaX = tileCenter.X - centerTile.X;
+            int deltaY = tileCenter.Y - centerTile.Y;
+            deltaX = Math.Min(Math.Abs(deltaX), tileCount - Math.Abs(deltaX));
+            deltaY = Math.Min(Math.Abs(deltaY), tileCount - Math.Abs(deltaY));
+            return Math.Sqrt((double)(deltaX * deltaX) + (deltaY * deltaY));
         }
         
         public override void CancelActiveRequests(CanonicalTileId unityTileId)

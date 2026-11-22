@@ -11,8 +11,8 @@ namespace Mapbox.BaseModuleTests
         {
             var cameraPosition = Vector3.zero;
             var forward = Vector3.forward;
-            var aheadPlane = new Plane(Vector3.down, new Vector3(0f, 0f, 2f));
-            var behindPlane = new Plane(Vector3.up, new Vector3(0f, 0f, -2f));
+            var aheadPlane = new Plane(Vector3.forward, new Vector3(0f, 0f, 2f));
+            var behindPlane = new Plane(Vector3.back, new Vector3(0f, 0f, -2f));
             var sidePlane = new Plane(Vector3.right, Vector3.zero);
 
             Assert.IsTrue(UnityTileProvider.ShouldExpandAhead(aheadPlane, cameraPosition, forward, 1f));

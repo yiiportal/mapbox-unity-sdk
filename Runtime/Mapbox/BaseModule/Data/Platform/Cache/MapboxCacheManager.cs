@@ -31,6 +31,12 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         public Action<TaskWrapper> CacheTaskFinished = (t) => { };
 
         public static MapboxCacheManager Shared { get; private set; }
+        public static Func<MapboxCacheManager> SharedFactory { get; set; }
+
+        public static void SetShared(MapboxCacheManager cacheManager)
+        {
+            Shared = cacheManager;
+        }
         public MapboxCacheManager PinnedCacheManager { get; set; }
         
         protected IMemoryCache _memoryCache;
@@ -73,7 +79,6 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
                 CheckSqlAndFileIntegrity();
             }
 
-            Shared = this;
         }
 
         public void ClearCachedData()
@@ -349,11 +354,11 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             }
         }
 
-        public bool HasUnexpiredTile(string tilesetId, CanonicalTileId tileId)
+        public bool HasUnexpiredTile(string tilesetId, CanonicalTileId tileId, bool requireFile = true)
         {
             bool hasIndexRow = _sqLiteCache is SqliteCache sqliteCache &&
                                sqliteCache.HasUnexpiredTile(tilesetId, tileId);
-            bool hasRasterFile = _textureFileCache == null || _textureFileCache.Exists(tileId, tilesetId);
+            bool hasRasterFile = !requireFile || _textureFileCache == null || _textureFileCache.Exists(tileId, tilesetId);
             return hasIndexRow && hasRasterFile;
         }
 

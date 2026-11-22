@@ -22,7 +22,6 @@ namespace Mapbox.LandmarksModule
     {
         private const int RequestTimeoutSeconds = 20;
         private const float DefaultTableFootprintMeters = 0.75f;
-        private static MapboxCacheManager _fallbackCacheManager;
 
         public sealed class LandmarkArTileCache
         {
@@ -258,7 +257,7 @@ namespace Mapbox.LandmarksModule
             }
 
             // FORK yiiportal: reuse the landmark disk cache even when AR opens before the Map.
-            var diskCache = GetOrCreateFallbackCacheManager();
+            var diskCache = MapboxCacheManager.Shared ?? MapboxCacheManager.SharedFactory?.Invoke();
             Task<BuildingData> diskLookup = diskCache?.GetBlobAsync<BuildingData>(
                 tileId,
                 Constants.Map.LandmarksTilesetId);
@@ -445,47 +444,6 @@ namespace Mapbox.LandmarksModule
             }
 
             return false;
-        }
-
-        private static MapboxCacheManager GetOrCreateFallbackCacheManager()
-        {
-            if (_fallbackCacheManager != null)
-            {
-                return _fallbackCacheManager;
-            }
-
-            var taskManager = new TaskManager();
-            taskManager.Initialize();
-            var unityContext = new UnityContext { TaskManager = taskManager };
-#if UNITY_IOS && !UNITY_EDITOR
-            string cacheRoot = Application.temporaryCachePath;
-            string pinnedRoot = Application.persistentDataPath;
-#else
-            string cacheRoot = Application.persistentDataPath;
-            string pinnedRoot = Application.persistentDataPath;
-#endif
-            var pinnedCache = new MapboxCacheManager(
-                unityContext,
-                new MemoryCache(),
-                new FileCache(taskManager, pinnedRoot, "Pinned"),
-                new SqliteCache(taskManager, pinnedRoot, null, null, null, "Pinned"));
-            var cacheManager = new MapboxCacheManager(
-                unityContext,
-                new MemoryCache(),
-                new FileCache(taskManager, cacheRoot, string.Empty),
-                new SqliteCache(
-                    taskManager,
-                    cacheRoot,
-                    new SqliteCacheBudget(
-                        new Dictionary<string, long> { ["landmarks"] = 150L * 1024L * 1024L },
-                        150L * 1024L * 1024L),
-                    tilesetId => tilesetId == Constants.Map.LandmarksTilesetId ? "landmarks" : "vector"))
-            {
-                PinnedCacheManager = pinnedCache
-            };
-
-            _fallbackCacheManager = cacheManager;
-            return cacheManager;
         }
 
         private static bool RingContains(Vector2[] ring, Vector2 point)

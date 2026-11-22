@@ -60,6 +60,7 @@ namespace Mapbox.LandmarksModule
             PruneUnknownTiles(inactiveKeys);
             return inactiveKeys
                 .OrderBy(GetEvictionRank)
+                .ThenBy(GetLastSeen)
                 .ThenBy(tileId => tileId.GetHashCode());
         }
 
@@ -74,10 +75,12 @@ namespace Mapbox.LandmarksModule
             double ringDistance = GetRingDistance(tileId);
             _ringDistances[tileId] = ringDistance;
             bool isInsideExitRing = ringDistance <= ExitRingRadius;
+            var (deltaX, deltaY) = GetWrappedTileDelta(tileId);
             bool isInsideMinimumResidency =
                 _lastSeenTimes.TryGetValue(tileId, out float lastSeen) &&
                 _retainPassTime - lastSeen < MinimumResidencySeconds;
-            return isInsideExitRing || isInsideMinimumResidency ? 10d + ringDistance : ringDistance;
+            double distanceRank = ringDistance + Math.Max(0d, GetSignedForwardDistance(deltaX, deltaY)) * 0.25d;
+            return isInsideExitRing || isInsideMinimumResidency ? 10d + distanceRank : distanceRank;
         }
 
         private double GetRingDistance(CanonicalTileId tileId)
@@ -96,6 +99,21 @@ namespace Mapbox.LandmarksModule
             double signedForward = GetSignedForwardDistance(deltaX, deltaY);
             double chebyshevDistance = Math.Max(Math.Abs(deltaX), Math.Abs(deltaY));
             return Math.Max(0d, chebyshevDistance - Math.Max(0d, signedForward) * HeadingBiasTiles);
+        }
+
+        private (int DeltaX, int DeltaY) GetWrappedTileDelta(CanonicalTileId tileId)
+        {
+            if (tileId.Z != _center.Z)
+            {
+                return (0, 0);
+            }
+
+            int tileCount = 1 << tileId.Z;
+            int deltaX = tileId.X - _center.X;
+            int deltaY = tileId.Y - _center.Y;
+            if (deltaX > tileCount / 2) deltaX -= tileCount;
+            if (deltaX < -tileCount / 2) deltaX += tileCount;
+            return (deltaX, deltaY);
         }
 
         private double GetSignedForwardDistance(int deltaX, int deltaY)
