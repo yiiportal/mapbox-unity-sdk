@@ -24,7 +24,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		protected string CacheRootFolderName = "Mapbox/SqliteCache";
 		protected string cacheFileName = "cache.db";
 		protected TaskManager _taskManager;
-		protected const int DATABASE_CODE_VERSION = 2;
+		protected const int DATABASE_CODE_VERSION = 3;
 
 		public uint MaxCacheSize => _maxTileCount;
 
@@ -37,6 +37,9 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		private string _dbPath;
 		private SQLiteConnection _sqlite;
 		private readonly uint _maxTileCount;
+		private readonly SqliteCacheBudget _budget;
+		private readonly TilesetFamilyResolver _familyResolver;
+		private readonly Queue<(int rowId, int accessUnix)> _lastAccessUpdates = new();
 		/// <summary>check cache size only every '_pruneCacheDelta' calls to 'Add()' to avoid being too chatty with the database</summary>
 		
 		/// <summary>counter to keep track of calls to `Add()`</summary>
@@ -50,6 +53,28 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			PersistantCacheRootFolderPath = Path.Combine(Application.persistentDataPath, CacheRootFolderName);
 			_taskManager = taskManager;
 			_maxTileCount = maxTileCount ?? 3000;
+			_dbName = cacheFileName;
+			ReadySqliteDatabase();
+		}
+
+		// FORK yiiportal: inject the device cache root and byte-budget policy.
+		public SqliteCache(
+			TaskManager taskManager,
+			string cacheRootPath,
+			SqliteCacheBudget budget,
+			TilesetFamilyResolver familyResolver,
+			uint? maxTileCount = null,
+			string dbFolderNamePostFix = "")
+		{
+			CacheRootFolderName += dbFolderNamePostFix;
+			var baseRootPath = string.IsNullOrEmpty(cacheRootPath)
+				? Application.persistentDataPath
+				: cacheRootPath;
+			PersistantCacheRootFolderPath = Path.Combine(baseRootPath, CacheRootFolderName);
+			_taskManager = taskManager;
+			_maxTileCount = maxTileCount ?? 3000;
+			_budget = budget;
+			_familyResolver = familyResolver;
 			_dbName = cacheFileName;
 			ReadySqliteDatabase();
 		}
@@ -107,6 +132,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 	tile_data    BLOB,
 	tile_path    TEXT,
 	timestamp    INTEGER NOT NULL,
+				tile_size    INTEGER NOT NULL,
+				last_access  INTEGER NOT NULL,
 	etag         TEXT,
 	expirationDate INTEGER,
 	CONSTRAINT tileConstraint UNIQUE (tile_set, zoom_level, tile_column, tile_row)
@@ -117,6 +144,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 					_sqlite.Execute(cmdIdxTileset);
 					string cmdIdxTimestamp = "CREATE INDEX idx_timestamp ON tiles (timestamp ASC);";
 					_sqlite.Execute(cmdIdxTimestamp);
+					string cmdIdxLastAccess = "CREATE INDEX idx_last_access ON tiles (last_access ASC);";
+					_sqlite.Execute(cmdIdxLastAccess);
 				}
 
 				List<SQLiteConnection.ColumnInfo> colInfoOfflineMaps = _sqlite.GetTableInfo(typeof(offlineMaps).Name);
@@ -167,6 +196,20 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 
 		public void SyncAdd(string tilesetName, CanonicalTileId tileId, byte[] data, string path, string etag, DateTime? expirationDate, bool forceInsert)
 		{
+			SyncAdd(tilesetName, tileId, data, path, etag, expirationDate, forceInsert, -1);
+		}
+
+		// FORK yiiportal: retain the physical tile size for byte-budget pruning.
+		public void SyncAdd(
+			string tilesetName,
+			CanonicalTileId tileId,
+			byte[] data,
+			string path,
+			string etag,
+			DateTime? expirationDate,
+			bool forceInsert,
+			long tileSizeBytes)
+		{
 			lock (_lock)
 			{
 				try
@@ -189,6 +232,9 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 					lock (_lock)
 					{
 						var nowInUnix = (int) UnixTimestampUtils.To(DateTime.Now);
+						var physicalSizeBytes = tileSizeBytes >= 0
+							? tileSizeBytes
+							: data?.Length ?? 0;
 						var newTile = new tiles
 						{
 							tile_set = tilesetId.Value,
@@ -198,6 +244,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 							tile_data = data,
 							tile_path = path,
 							timestamp = nowInUnix,
+							tile_size = (int) physicalSizeBytes,
+							last_access = nowInUnix,
 							etag = etag,
 							expirationDate = expirationDate.HasValue ? (int) UnixTimestampUtils.To(expirationDate.Value) : nowInUnix
 						};
@@ -367,6 +415,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		{
 			lock (_lock)
 			{
+				_lastAccessUpdates.Clear();
 				try
 				{
 					var tableNames = _sqlite.Table<SqliteSchemaObject>().Where
@@ -409,10 +458,11 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			{
 				if (null == _sqlite) { return false; }
 
+				FlushLastAccess();
 				_sqlite.Dispose();
 				_sqlite = null;
 
-				string cacheDirectory = Path.Combine(Application.persistentDataPath, CacheRootFolderName);
+				string cacheDirectory = PersistantCacheRootFolderPath;
 				if (!Directory.Exists(cacheDirectory)) { return true; }
 				var filePath = GetFullDbPath(_dbName);
 
@@ -530,12 +580,13 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			lock (_lock)
 			{
 				var query = "UPDATE tiles " +
-				            "SET tile_data = ?1, tile_path = ?2, timestamp = ?3, expirationDate = ?4, etag = ?5" +
-				            "WHERE tile_set = ?6 AND zoom_level = ?7 AND tile_column = ?8 AND tile_row = ?9 ";
+				            "SET tile_data = ?1, tile_path = ?2, timestamp = ?3, tile_size = ?4, last_access = ?3, expirationDate = ?5, etag = ?6 " +
+				            "WHERE tile_set = ?7 AND zoom_level = ?8 AND tile_column = ?9 AND tile_row = ?10 ";
 				var command = _sqlite.CreateCommand(query,
 					newTile.tile_data,
 					newTile.tile_path,
 					newTile.timestamp,
+					newTile.tile_size,
 					newTile.expirationDate,
 					newTile.etag,
 					newTile.tile_set,
@@ -549,8 +600,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		private long InsertTile(tiles newTile)
 		{
 			var query = "INSERT INTO tiles " +
-			            "(tile_set, zoom_level, tile_column, tile_row, tile_data, tile_path, timestamp, expirationDate, etag)" +
-			            "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+			            "(tile_set, zoom_level, tile_column, tile_row, tile_data, tile_path, timestamp, tile_size, last_access, expirationDate, etag)" +
+			            "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)";
 
 			var command = _sqlite.CreateCommand(query,
 				newTile.tile_set,
@@ -560,6 +611,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 				newTile.tile_data,
 				newTile.tile_path,
 				newTile.timestamp,
+				newTile.tile_size,
+				newTile.last_access,
 				newTile.expirationDate,
 				newTile.etag);
 			var rowsChanged = command.ExecuteNonQuery();
@@ -639,6 +692,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 					{
 						if (null != _sqlite)
 						{
+							FlushLastAccess();
 							_sqlite.Execute("VACUUM;"); // compact db to keep file size small
 							_sqlite.Close();
 							_sqlite.Dispose();
@@ -682,6 +736,13 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		{
 			lock (_lock)
 			{
+				FlushLastAccess();
+
+				if (_budget != null)
+				{
+					PruneByFamilyBytes();
+					return;
+				}
 
 				long tileCnt = _sqlite.ExecuteScalar<long>("SELECT COUNT(zoom_level) FROM tiles");
 
@@ -718,6 +779,80 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 					Debug.Log(string.Format("{0},{1},{2},{3}", tile.tile_set, tile.zoom_level, tile.tile_column, tile.tile_row));
 				}
 			}
+		}
+
+		// FORK yiiportal: evict each caller-defined tileset family independently.
+		private void PruneByFamilyBytes()
+		{
+			var tilesetsById = new Dictionary<int, string>();
+			foreach (var tileset in _sqlite.Table<tilesets>())
+			{
+				tilesetsById[tileset.id] = tileset.name;
+			}
+
+			var tilesetsByFamily = new Dictionary<string, List<int>>();
+			foreach (var tilesetEntry in tilesetsById)
+			{
+				var family = _familyResolver?.Invoke(tilesetEntry.Value) ?? string.Empty;
+				if (!tilesetsByFamily.TryGetValue(family, out var tilesetIds))
+				{
+					tilesetIds = new List<int>();
+					tilesetsByFamily.Add(family, tilesetIds);
+				}
+
+				tilesetIds.Add(tilesetEntry.Key);
+			}
+
+			foreach (var familyEntry in tilesetsByFamily)
+			{
+				PruneTilesetsToByteBudget(familyEntry.Value, _budget.GetBudgetBytes(familyEntry.Key));
+			}
+		}
+
+		private void PruneTilesetsToByteBudget(List<int> tilesetIds, long budgetBytes)
+		{
+			if (tilesetIds.Count == 0 || budgetBytes < 0)
+			{
+				return;
+			}
+
+			var tilesetIdFilter = string.Join(",", tilesetIds);
+			var usedBytes = _sqlite.ExecuteScalar<long>(
+				$"SELECT COALESCE(SUM(tile_size), 0) FROM tiles WHERE tile_set IN ({tilesetIdFilter})");
+			if (usedBytes <= budgetBytes)
+			{
+				return;
+			}
+
+			var bytesToDelete = usedBytes - budgetBytes;
+			var query = "SELECT id, tile_path, tile_size FROM tiles " +
+			            $"WHERE tile_set IN ({tilesetIdFilter}) " +
+			            "ORDER BY last_access ASC, timestamp ASC, id ASC";
+			var candidates = _sqlite.CreateCommand(query).ExecuteQuery<tiles>();
+			var deletedBytes = 0L;
+			var deletedRowIds = new List<int>();
+			var deletedPaths = new List<tiles>();
+
+			foreach (var candidate in candidates)
+			{
+				if (deletedBytes >= bytesToDelete)
+				{
+					break;
+				}
+
+				deletedBytes += candidate.tile_size;
+				deletedRowIds.Add(candidate.id);
+				deletedPaths.Add(candidate);
+			}
+
+			if (deletedRowIds.Count == 0)
+			{
+				return;
+			}
+
+			DeleteFile(deletedPaths);
+			var rowIdFilter = string.Join(",", deletedRowIds);
+			_sqlite.Execute($"DELETE FROM tiles WHERE id IN ({rowIdFilter})");
 		}
 
 		private void DeleteFile(List<tiles> tilesToDelete)
@@ -772,10 +907,43 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 				tile.expirationDateFormatted = UnixTimestampUtils.From((double) tile.expirationDate.Value);
 			}
 
-			tile.timestamp = (int) UnixTimestampUtils.To(DateTime.Now);
-			_sqlite.InsertOrReplace(tile);
+			QueueLastAccess(tile.id);
 
 			return true;
+		}
+
+		private void QueueLastAccess(int rowId)
+		{
+			_lastAccessUpdates.Enqueue((rowId, (int) UnixTimestampUtils.To(DateTime.Now)));
+			if (_lastAccessUpdates.Count >= 20)
+			{
+				FlushLastAccess();
+			}
+		}
+
+		private void FlushLastAccess()
+		{
+			if (_lastAccessUpdates.Count == 0)
+			{
+				return;
+			}
+
+			try
+			{
+				_sqlite.BeginTransaction(true);
+				while (_lastAccessUpdates.Count > 0)
+				{
+					var update = _lastAccessUpdates.Dequeue();
+					_sqlite.Execute(
+						"UPDATE tiles SET last_access = ?1 WHERE id = ?2",
+						update.accessUnix,
+						update.rowId);
+				}
+			}
+			finally
+			{
+				_sqlite.Commit();
+			}
 		}
 
 		/// <summary>

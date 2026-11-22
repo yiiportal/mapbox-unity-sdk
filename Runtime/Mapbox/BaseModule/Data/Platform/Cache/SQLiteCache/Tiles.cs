@@ -54,6 +54,13 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 		[Preserve]
 		public int? expirationDate { get; set; }
 
+		// FORK yiiportal: byte accounting and read recency for family-wise LRU pruning.
+		[Preserve]
+		public int tile_size { get; set; }
+
+		[Preserve]
+		public int last_access { get; set; }
+
 		[Ignore]
 		public DateTime expirationDateFormatted  { get; set; }
 	}

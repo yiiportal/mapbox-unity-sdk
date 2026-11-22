@@ -26,6 +26,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 		bool GetAsync<T>(CanonicalTileId tileId, string tilesetId, bool isTextureNonreadable, Action<T> callback) where T : RasterData, new();
 		IEnumerator GetCoroutine<T>(CanonicalTileId tileId, string tilesetId, bool isTextureNonreadable, Action<T> callback) where T : RasterData, new();
 		void DeleteByFileRelativePath(string fileRelativePath);
+		long GetFileSize(CanonicalTileId tileId, string tilesetId);
 	}
 
 	public class FileCache : IFileCache
@@ -45,6 +46,21 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 		{
 			CacheRootFolderName += folderNamePostFix;
 			PersistantCacheRootFolderPath = Path.GetFullPath(Path.Combine(Application.persistentDataPath, CacheRootFolderName));
+			_taskManager = taskManager;
+			_fileDataFetcher = new FileDataFetcher();
+			MapIdToFolderNameDictionary = new Dictionary<string, string>();
+
+			TestAvailability();
+		}
+
+		// FORK yiiportal: device cache root selection is made by the app.
+		public FileCache(TaskManager taskManager, string cacheRootPath, string folderNamePostFix)
+		{
+			CacheRootFolderName += folderNamePostFix;
+			var baseRootPath = string.IsNullOrEmpty(cacheRootPath)
+				? Application.persistentDataPath
+				: cacheRootPath;
+			PersistantCacheRootFolderPath = Path.GetFullPath(Path.Combine(baseRootPath, CacheRootFolderName));
 			_taskManager = taskManager;
 			_fileDataFetcher = new FileDataFetcher();
 			MapIdToFolderNameDictionary = new Dictionary<string, string>();
@@ -193,6 +209,12 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 			{
 				Debug.Log($"File {path} does not exist");
 			}
+		}
+
+		public long GetFileSize(CanonicalTileId tileId, string tilesetId)
+		{
+			var fileInfo = new FileInfo(TileToPathFileInfoExpects(tileId, tilesetId));
+			return fileInfo.Exists ? fileInfo.Length : -1;
 		}
 
 		public virtual void ClearAll()

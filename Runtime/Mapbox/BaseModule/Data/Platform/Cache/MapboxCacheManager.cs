@@ -80,7 +80,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         {
             _textureFileCache?.Add(textureCacheItem, forceInsert, (path) =>
             {
-                _sqLiteCache?.SyncAdd(textureCacheItem.TilesetId, textureCacheItem.TileId, null, path, textureCacheItem.ETag, textureCacheItem.ExpirationDate, true);
+                SaveTileIndex(textureCacheItem, path, _textureFileCache?.GetFileSize(textureCacheItem.TileId, textureCacheItem.TilesetId) ?? 0);
             });
         }
         
@@ -144,7 +144,40 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             });
             if (!string.IsNullOrEmpty(finalPath))
             {
-                _sqLiteCache?.SyncAdd(textureCacheItem.TilesetId, textureCacheItem.TileId, null, finalPath, textureCacheItem.ETag, textureCacheItem.ExpirationDate, true);
+                SaveTileIndex(textureCacheItem, finalPath, _textureFileCache?.GetFileSize(textureCacheItem.TileId, textureCacheItem.TilesetId) ?? 0);
+            }
+        }
+
+        // FORK yiiportal: the SQLite index records physical bytes for family-wise eviction.
+        private void SaveTileIndex(MapboxTileData tileData, string path, long tileSizeBytes)
+        {
+            if (_sqLiteCache == null)
+            {
+                return;
+            }
+
+            if (_sqLiteCache is SqliteCache sqliteCache)
+            {
+                sqliteCache.SyncAdd(
+                    tileData.TilesetId,
+                    tileData.TileId,
+                    tileData.Data,
+                    path,
+                    tileData.ETag,
+                    tileData.ExpirationDate,
+                    true,
+                    tileSizeBytes);
+            }
+            else
+            {
+                _sqLiteCache.SyncAdd(
+                    tileData.TilesetId,
+                    tileData.TileId,
+                    tileData.Data,
+                    path,
+                    tileData.ETag,
+                    tileData.ExpirationDate,
+                    true);
             }
         }
 
