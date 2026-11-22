@@ -2,6 +2,7 @@
 using System.Collections;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Mapbox.BaseModule.Data.DataFetchers;
 using Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache;
 using Mapbox.BaseModule.Data.Tasks;
@@ -28,6 +29,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
     public class MapboxCacheManager : IMapboxCacheManager
     {
         public Action<TaskWrapper> CacheTaskFinished = (t) => { };
+
+        public static MapboxCacheManager Shared { get; private set; }
         
         protected IMemoryCache _memoryCache;
         protected IFileCache _textureFileCache;
@@ -68,6 +71,8 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 
                 CheckSqlAndFileIntegrity();
             }
+
+            Shared = this;
         }
 
         public void ClearCachedData()
@@ -87,6 +92,64 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         public virtual void SaveBlob(MapboxTileData vectorCacheItem, bool forceInsert)
         {
             _sqLiteCache?.Add(vectorCacheItem, forceInsert);
+        }
+
+        // FORK yiiportal: Source A AR landmarks reuse the map disk cache after map teardown.
+        public virtual async Task<T> GetBlobAsync<T>(
+            CanonicalTileId tileId,
+            string tilesetId,
+            T data = null)
+            where T : MapboxTileData, new()
+        {
+            if (_sqLiteCache == null)
+            {
+                return null;
+            }
+
+            var cached = await Task.Run(() => _sqLiteCache.Get(tilesetId, tileId, data));
+            if (cached == null || cached.Data == null || cached.Data.Length == 0)
+            {
+                return null;
+            }
+
+            return cached.ExpirationDate.HasValue && cached.ExpirationDate.Value < DateTime.UtcNow ? null : cached;
+        }
+
+        public virtual Task<bool> SaveBlobAsync(MapboxTileData tileData)
+        {
+            if (_sqLiteCache == null || tileData?.Data == null || tileData.Data.Length == 0)
+            {
+                return Task.FromResult(false);
+            }
+
+            return Task.Run(() =>
+            {
+                if (_sqLiteCache is SqliteCache sqliteCache)
+                {
+                    sqliteCache.SyncAdd(
+                        tileData.TilesetId,
+                        tileData.TileId,
+                        tileData.Data,
+                        string.Empty,
+                        tileData.ETag,
+                        tileData.ExpirationDate ?? DateTime.UtcNow,
+                        true,
+                        tileData.Data.Length);
+                }
+                else
+                {
+                    _sqLiteCache.SyncAdd(
+                        tileData.TilesetId,
+                        tileData.TileId,
+                        tileData.Data,
+                        string.Empty,
+                        tileData.ETag,
+                        tileData.ExpirationDate ?? DateTime.UtcNow,
+                        true);
+                }
+
+                return true;
+            });
         }
         
         public virtual void GetImageAsync<T>(CanonicalTileId tileId, string tilesetId, bool isTextureNonreadable, Action<T> callback) where T : RasterData, new()
@@ -314,5 +377,13 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
                 Debug.Log("Mapbox cache cleared");
             }
         }
+
+#if UNITY_EDITOR
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetShared()
+        {
+            Shared = null;
+        }
+#endif
     }
 }

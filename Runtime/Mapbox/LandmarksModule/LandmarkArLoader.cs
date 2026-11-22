@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Mapbox.BaseModule.Data.DataFetchers;
+using Mapbox.BaseModule.Data.Platform.Cache;
 using Mapbox.BaseModule.Data.Tasks;
 using Mapbox.BaseModule.Data.Tiles;
 using Mapbox.BaseModule.Data.Vector2d;
@@ -252,6 +253,29 @@ namespace Mapbox.LandmarksModule
                 yield break;
             }
 
+            // FORK yiiportal: reuse the map's landmark disk cache in AR without retaining tile bytes.
+            var diskCache = MapboxCacheManager.Shared;
+            Task<BuildingData> diskLookup = diskCache?.GetBlobAsync<BuildingData>(
+                tileId,
+                Constants.Map.LandmarksTilesetId);
+            if (diskLookup != null)
+            {
+                while (!diskLookup.IsCompleted)
+                {
+                    yield return null;
+                }
+
+                if (diskLookup.IsFaulted)
+                {
+                    Debug.LogWarning($"[LandmarkArLoader] Tile {tileId} disk-cache lookup failed: {diskLookup.Exception?.GetBaseException().Message}");
+                }
+                else if (diskLookup.Result?.Data is { Length: > 0 } cachedTileData)
+                {
+                    callback(cachedTileData);
+                    yield break;
+                }
+            }
+
             string url = MapboxApiUrls.AppendCredentials(
                 $"https://api.tiles.mapbox.com/3dtiles/v1/{Constants.Map.LandmarksTilesetId}/{tileId}.glb",
                 accessToken,
@@ -268,12 +292,61 @@ namespace Mapbox.LandmarksModule
             }
 
             byte[] data = request.downloadHandler.data;
+            if (diskCache != null && data is { Length: > 0 } &&
+                TryGetExpirationDate(request, out var expirationDate))
+            {
+                var diskWrite = diskCache.SaveBlobAsync(new BuildingData
+                {
+                    TileId = tileId,
+                    TilesetId = Constants.Map.LandmarksTilesetId,
+                    Data = data,
+                    ETag = request.GetETag(),
+                    ExpirationDate = expirationDate
+                });
+                while (!diskWrite.IsCompleted)
+                {
+                    yield return null;
+                }
+
+                if (diskWrite.IsFaulted)
+                {
+                    Debug.LogWarning($"[LandmarkArLoader] Tile {tileId} disk-cache write failed: {diskWrite.Exception?.GetBaseException().Message}");
+                }
+            }
+
             if (tileCache != null)
             {
                 tileCache.Tiles[tileId] = data;
             }
 
             callback(data);
+        }
+
+        private static bool TryGetExpirationDate(UnityWebRequest request, out DateTime expirationDate)
+        {
+            expirationDate = DateTime.UtcNow;
+            var cacheControl = request.GetResponseHeader("Cache-Control");
+            if (string.IsNullOrEmpty(cacheControl))
+            {
+                return false;
+            }
+
+            foreach (var directive in cacheControl.Split(','))
+            {
+                var parts = directive.Split('=');
+                if (parts.Length != 2 ||
+                    !string.Equals(parts[0].Trim(), "max-age", StringComparison.OrdinalIgnoreCase) ||
+                    !int.TryParse(parts[1].Trim(), out int maxAgeSeconds) ||
+                    maxAgeSeconds <= 0)
+                {
+                    continue;
+                }
+
+                expirationDate = DateTime.UtcNow.AddSeconds(maxAgeSeconds);
+                return true;
+            }
+
+            return false;
         }
 
         private static GameObject ExtractLandmark(
