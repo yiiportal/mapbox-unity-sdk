@@ -327,7 +327,7 @@ namespace MapboxUnitySDK.Editor
 		{
 			if (Application.isPlaying)
 			{
-				var core = GameObject.FindObjectOfType<MapBehaviourCore>();
+				var core = GameObject.FindAnyObjectByType<MapBehaviourCore>();
 				if (core == null)
 				{
 					Debug.LogError("No Map Core found");

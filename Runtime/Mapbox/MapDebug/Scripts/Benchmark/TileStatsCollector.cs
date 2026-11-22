@@ -17,7 +17,7 @@ namespace Mapbox.MapDebug.Scripts.Benchmark
     /// </summary>
     public class TileStatsCollector : MonoBehaviour, IBenchmarkStats
     {
-        [Tooltip("Map behaviour for auto-wiring in standalone mode. Uses FindObjectOfType if empty.")]
+        [Tooltip("Map behaviour for auto-wiring in standalone mode. Uses FindAnyObjectByType if empty.")]
         public LoggingMapBehaviour MapBehaviour;
 
         [Tooltip("Show overlay text on screen")]
@@ -63,7 +63,7 @@ namespace Mapbox.MapDebug.Scripts.Benchmark
             if (!Standalone) yield break;
 
             if (MapBehaviour == null)
-                MapBehaviour = FindObjectOfType<LoggingMapBehaviour>();
+                MapBehaviour = FindAnyObjectByType<LoggingMapBehaviour>();
 
             if (MapBehaviour != null)
             {

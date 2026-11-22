@@ -10,7 +10,7 @@ namespace Mapbox.Example.Scripts.Test
     {
         private void Awake()
         {
-            var mapBehaviour = FindObjectOfType<MapboxMapBehaviour>();
+            var mapBehaviour = FindAnyObjectByType<MapboxMapBehaviour>();
             mapBehaviour.Initialized += (map) =>
             {
                 var mapVisualizer = map.MapVisualizer;

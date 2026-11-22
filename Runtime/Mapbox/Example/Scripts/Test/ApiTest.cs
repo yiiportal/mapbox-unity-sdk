@@ -15,19 +15,19 @@ namespace Mapbox.Example.Scripts.Test
 
         public void SetLatLng1()
         {
-            _map = FindObjectOfType<MapboxMapBehaviour>().MapboxMap;
+            _map = FindAnyObjectByType<MapboxMapBehaviour>().MapboxMap;
             _map.MapInformation.SetInformation(Conversions.StringToLatLon(LatLng1));
         }
     
         public void SetLatLng2()
         {
-            _map = FindObjectOfType<MapboxMapBehaviour>().MapboxMap;
+            _map = FindAnyObjectByType<MapboxMapBehaviour>().MapboxMap;
             _map.MapInformation.SetInformation(Conversions.StringToLatLon(LatLng2));
         }
 
         public void SetZoomRandom()
         {
-            _map = FindObjectOfType<MapboxMapBehaviour>().MapboxMap;
+            _map = FindAnyObjectByType<MapboxMapBehaviour>().MapboxMap;
             _map.MapInformation.SetInformation(null, (Random.value * 15) + 1);
         }
 
@@ -47,7 +47,7 @@ namespace Mapbox.Example.Scripts.Test
         
             IEnumerator clickToLatLng()
             {
-                _map = FindObjectOfType<MapboxMapBehaviour>().MapboxMap;
+                _map = FindAnyObjectByType<MapboxMapBehaviour>().MapboxMap;
                 var camera = Camera.main;
                 while (true)
                 {

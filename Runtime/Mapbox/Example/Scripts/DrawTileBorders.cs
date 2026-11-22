@@ -45,7 +45,7 @@ namespace Mapbox.Example.Scripts
             };
             _camera = Camera;
             if (MapBehaviour == null)
-                MapBehaviour = FindObjectOfType<MapboxMapBehaviour>();
+                MapBehaviour = FindAnyObjectByType<MapboxMapBehaviour>();
         
             MapBehaviour.Initialized += (map) =>
             {

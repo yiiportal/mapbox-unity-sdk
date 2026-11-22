@@ -16,7 +16,7 @@ namespace Mapbox.Example.Scripts.Map
 
         private void Awake()
         {
-            var mapBehaviour = FindObjectOfType<MapboxMapBehaviour>();
+            var mapBehaviour = FindAnyObjectByType<MapboxMapBehaviour>();
             mapBehaviour.Initialized += (map) =>
             {
                 Map = map;

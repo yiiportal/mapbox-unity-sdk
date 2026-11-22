@@ -62,7 +62,7 @@ namespace Mapbox.LandmarksModule.Unity
                 return;
             }
 
-            _map = FindObjectOfType<MapBehaviourCore>();
+            _map = FindAnyObjectByType<MapBehaviourCore>();
             if (_map == null)
             {
                 Debug.LogWarning($"{nameof(LandmarkHighlightBehaviour)} found no {nameof(MapBehaviourCore)} in the scene, so landmark selection is disabled.", this);

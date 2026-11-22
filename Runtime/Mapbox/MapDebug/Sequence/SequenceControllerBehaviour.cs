@@ -31,12 +31,12 @@ namespace Mapbox.MapDebug.Sequence
 
         private void Start()
         {
-            _mapLogger = FindObjectOfType<MapLogger>();
+            _mapLogger = FindAnyObjectByType<MapLogger>();
         }
 
         public async void Load()
         {
-            var mapCore = FindObjectOfType<MapBehaviourCore>();
+            var mapCore = FindAnyObjectByType<MapBehaviourCore>();
             Map = mapCore.MapboxMap;
             string jsonString = File.ReadAllText(FilePath);
             var json = JObject.Parse(jsonString);

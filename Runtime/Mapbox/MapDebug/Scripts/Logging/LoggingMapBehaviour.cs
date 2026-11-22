@@ -59,7 +59,7 @@ namespace Mapbox.MapDebug.Scripts.Logging
             if (InitializationStatus != InitializationStatus.WaitingForInitialization)
                 yield break;
 
-            _mapLogger = FindObjectOfType<MapLogger>();
+            _mapLogger = FindAnyObjectByType<MapLogger>();
 
             MapInformation.Initialize();
 

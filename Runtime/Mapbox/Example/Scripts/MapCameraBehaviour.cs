@@ -24,7 +24,7 @@ namespace Mapbox.Example.Scripts.MapInput
 
         protected virtual void Awake()
         {
-            if (MapBehaviour == null) MapBehaviour = FindObjectOfType<MapBehaviourCore>();
+            if (MapBehaviour == null) MapBehaviour = FindAnyObjectByType<MapBehaviourCore>();
             if (Camera == null) Camera = Camera.main;
 
             if (MapBehaviour == null)

@@ -223,7 +223,7 @@ namespace Mapbox.MapDebug.Scripts.Benchmark
             SetupCollectors();
 
             // Suppress MapLogger overlay during recording to avoid visual collision
-            var mapLogger = FindObjectOfType<MapLogger>();
+            var mapLogger = FindAnyObjectByType<MapLogger>();
             bool wasLogging = mapLogger != null && mapLogger.PrintScreen;
             if (mapLogger != null) mapLogger.PrintScreen = false;
 

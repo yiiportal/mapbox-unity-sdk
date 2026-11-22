@@ -90,8 +90,20 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			lock (_lock)
 			{
 				var fileVersion = _sqlite.ExecuteScalar<int>("PRAGMA user_version");
-				return fileVersion == DATABASE_CODE_VERSION;
+				return fileVersion == DATABASE_CODE_VERSION && HasCurrentTilesColumns();
 			}
+		}
+
+		// FORK yiiportal: user_version is stamped on open (RunPragmas) and again by
+		// ReadySqliteDatabase before IsUpToDate runs, so a pre-RH1 file reads as current. The
+		// columns are checked directly so such a file is still recreated.
+		private static readonly string[] RequiredTilesColumns = { "tile_size", "last_access", "pinned" };
+
+		private bool HasCurrentTilesColumns()
+		{
+			var columns = _sqlite.GetTableInfo(typeof(tiles).Name);
+			return columns.Count == 0 || RequiredTilesColumns.All(required =>
+				columns.Any(column => string.Equals(column.Name, required, StringComparison.OrdinalIgnoreCase)));
 		}
 
 		/// <summary>
