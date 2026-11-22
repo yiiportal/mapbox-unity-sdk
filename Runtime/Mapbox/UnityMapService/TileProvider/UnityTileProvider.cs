@@ -129,6 +129,7 @@ namespace Mapbox.UnityMapService.TileProviders
 		public int LastRequestedMaximumZoom { get; private set; }
 		public int LastAppliedMaximumZoom { get; private set; }
 		public int LastAppliedTileCount { get; private set; }
+		public int LastBudgetFloorOverrunTileCount { get; private set; }
 
 		public UnityTileProvider(UnityTileProviderSettings settings)
 		{
@@ -175,6 +176,7 @@ namespace Mapbox.UnityMapService.TileProviders
 
 			LastRequestedMaximumZoom = requestedMaximumZoom;
 			WasTileBudgetApplied = false;
+			LastBudgetFloorOverrunTileCount = 0;
 
 			// FORK yiiportal: a lowered detail level sticks only while the requested zoom is unchanged
 			// (so the cover does not flap); a zoom change re-checks the budget from the requested level.
@@ -298,6 +300,12 @@ namespace Mapbox.UnityMapService.TileProviders
 			LastAppliedMaximumZoom = appliedMaximumZoom;
 			LastAppliedTileCount = tileCover.Tiles.Count;
 			WasTileBudgetApplied = appliedMaximumZoom < requestedMaximumZoom;
+			LastBudgetFloorOverrunTileCount = Settings.BudgetZoomFloor > 0 &&
+				appliedMaximumZoom == Settings.BudgetZoomFloor &&
+				requestedMaximumZoom >= Settings.BudgetZoomFloor &&
+				tileCover.Tiles.Count > tileBudget
+					? tileCover.Tiles.Count - tileBudget
+					: 0;
 			_hasAppliedCover = true;
 			LogTileBudgetTransition(tileBudget);
 		}

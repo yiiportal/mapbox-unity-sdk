@@ -329,10 +329,15 @@ namespace Mapbox.UnityMapService.DataSources
             }
         }
         
-        private bool IsBackingOff(CanonicalTileId tileId)
+        public override bool IsBackingOff(CanonicalTileId tileId)
         {
             return _failureBackoff.TryGetValue(tileId, out var backoff) &&
                    Time.realtimeSinceStartup < backoff.RetryAt;
+        }
+
+        public override bool HasTransientFailure(CanonicalTileId tileId)
+        {
+            return _failureBackoff.ContainsKey(tileId);
         }
 
         private void RecordFetchOutcome(ByteArrayTile tile, bool succeeded)
@@ -357,6 +362,11 @@ namespace Mapbox.UnityMapService.DataSources
         protected bool IsInProgress(CanonicalTileId requestedDataTileId)
         {
             return _waitingList.ContainsKey(requestedDataTileId) || IsActiveRequest(requestedDataTileId);
+        }
+
+        public bool IsTileInFlight(CanonicalTileId requestedDataTileId)
+        {
+            return IsInProgress(requestedDataTileId);
         }
     }
 }

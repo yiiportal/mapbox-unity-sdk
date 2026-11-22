@@ -110,6 +110,23 @@ namespace Mapbox.LandmarksModule
 		/// </summary>
 		public bool SuspendNewLoads { get; set; }
 
+		// FORK yiiportal: suppression telemetry classifies retained z14 tiles with no visible mesh.
+		public bool HasVisibleVisuals(CanonicalTileId tileId)
+		{
+			return _visualCache.TryGetValue(tileId, out var visuals) &&
+			       visuals.Objects.Any(gameObject => gameObject != null && gameObject.activeInHierarchy);
+		}
+
+		public bool IsUnbuildable(CanonicalTileId tileId) => _unbuildableTiles.Contains(tileId);
+
+		public bool IsDecodeInWork(CanonicalTileId tileId) => _meshGenerationUnit.IsInWork(tileId);
+
+		public bool IsBackingOff(CanonicalTileId tileId) =>
+			_buildingSource.IsBackingOff(tileId);
+
+		public bool HasTransientFetchFailure(CanonicalTileId tileId) =>
+			_buildingSource.HasTransientFailure(tileId);
+
 		private readonly Predicate<CanonicalTileId> _isUnresolved;
 
 		/// <param name="dataCacheSize">FORK yiiportal: how many landmark tiles outside the current

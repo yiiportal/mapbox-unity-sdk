@@ -70,6 +70,11 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 		/// warning. Retained items are untouched.
 		/// </summary>
 		public virtual void ClearInactiveData() { }
+
+		// FORK yiiportal: suppression telemetry identifies tiles waiting out fetch failures.
+		public virtual bool IsBackingOff(CanonicalTileId tileId) => false;
+
+		public virtual bool HasTransientFailure(CanonicalTileId tileId) => false;
 		
 		//move this to imageSource after merging imagery&terrain modules
 		public virtual void DownloadAndCacheBaseTiles() { }
