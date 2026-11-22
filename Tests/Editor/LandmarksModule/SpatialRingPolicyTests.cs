@@ -29,15 +29,16 @@ namespace Mapbox.LandmarksModuleTests
         [Test]
         public void MinimumResidencyKeepsRecentlySeenTileInsideExitWindow()
         {
+            var farRecent = new CanonicalTileId(14, 1004, 1000);
+            var farStale = new CanonicalTileId(14, 997, 1000);
             var policy = CreatePolicy();
-            policy.BeginRetainPass(Center, bearingDegrees: 0f, 0f, Array.Empty<CanonicalTileId>());
-            policy.Touch(Behind, 0f);
-            policy.Touch(Side, 4.9f);
-            policy.BeginRetainPass(Center, bearingDegrees: 0f, 5f, Array.Empty<CanonicalTileId>());
+            policy.BeginRetainPass(Center, bearingDegrees: 0f, 10f, Array.Empty<CanonicalTileId>());
+            policy.Touch(farStale, -10f);
+            policy.Touch(farRecent, 4.9f);
 
-            var order = policy.GetRetentionOrder()(new[] { Behind, Side }).ToArray();
+            var order = policy.GetRetentionOrder()(new[] { farRecent, farStale }).ToArray();
 
-            CollectionAssert.AreEqual(new[] { Side, Behind }, order);
+            CollectionAssert.AreEqual(new[] { farStale, farRecent }, order);
         }
 
         [Test]

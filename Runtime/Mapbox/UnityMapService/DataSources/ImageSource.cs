@@ -239,7 +239,7 @@ namespace Mapbox.UnityMapService.DataSources
             return normalizedX * normalizedX + normalizedY * normalizedY;
         }
 
-        // FORK yiiportal: evict by z10 area and radial distance so panning back remains coherent.
+        // FORK yiiportal: spatial raster eviction; see RasterEvictionPolicy.
         private IEnumerable<CanonicalTileId> OrderRasterEviction(
             IReadOnlyCollection<CanonicalTileId> inactiveKeys)
         {
@@ -248,26 +248,11 @@ namespace Mapbox.UnityMapService.DataSources
                 return inactiveKeys.Reverse();
             }
 
-            return inactiveKeys
-                .OrderBy(tileId => tileId.Z <= 4 ? double.MaxValue : GetZ10AreaDistance(tileId))
-                .ThenBy(tileId => tileId.Z)
-                .ThenBy(tileId => tileId.GetHashCode());
-        }
-
-        private double GetZ10AreaDistance(CanonicalTileId tileId)
-        {
-            var tileCenter = tileId.Z >= 10
-                ? tileId.ParentAt(10)
-                : tileId;
-            var centerTile = Conversions.LatitudeLongitudeToTileId(
-                _requestPriorityCenter,
-                10).Canonical;
-            int tileCount = 1 << 10;
-            int deltaX = tileCenter.X - centerTile.X;
-            int deltaY = tileCenter.Y - centerTile.Y;
-            deltaX = Math.Min(Math.Abs(deltaX), tileCount - Math.Abs(deltaX));
-            deltaY = Math.Min(Math.Abs(deltaY), tileCount - Math.Abs(deltaY));
-            return Math.Sqrt((double)(deltaX * deltaX) + (deltaY * deltaY));
+            return RasterEvictionPolicy.Order(
+                inactiveKeys,
+                Conversions.LatitudeLongitudeToTileId(
+                    _requestPriorityCenter,
+                    RasterEvictionPolicy.EvictionAreaZoom).Canonical);
         }
         
         public override void CancelActiveRequests(CanonicalTileId unityTileId)

@@ -935,10 +935,9 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			}
 
 			var bytesToDelete = usedBytes - budgetBytes;
-			var query = "SELECT id, tile_path, tile_size FROM tiles " +
-			            $"WHERE tile_set IN ({tilesetIdFilter}) AND pinned = 0 " +
-			            "ORDER BY last_access ASC, timestamp ASC, id ASC";
-			var candidates = _sqlite.CreateCommand(query).ExecuteQuery<tiles>();
+			var query = "SELECT id, zoom_level, tile_column, tile_row, tile_path, tile_size, last_access, timestamp FROM tiles " +
+			            $"WHERE tile_set IN ({tilesetIdFilter}) AND pinned = 0";
+			var candidates = OrderByEvictionArea(_sqlite.CreateCommand(query).ExecuteQuery<tiles>());
 			var deletedBytes = 0L;
 			var deletedRowIds = new List<int>();
 			var deletedPaths = new List<tiles>();
@@ -963,6 +962,42 @@ namespace Mapbox.BaseModule.Data.Platform.Cache.SQLiteCache
 			DeleteFile(deletedPaths);
 			var rowIdFilter = string.Join(",", deletedRowIds);
 			_sqlite.Execute($"DELETE FROM tiles WHERE id IN ({rowIdFilter})");
+		}
+
+		private const int EvictionAreaZoom = 10;
+
+		// FORK yiiportal: region-grouped LRU. Areas (z10 ancestors) leave least recently used
+		// first, oldest tiles first within an area, so a visited neighbourhood stays whole.
+		private static List<tiles> OrderByEvictionArea(List<tiles> candidates)
+		{
+			var areaLastAccess = new Dictionary<(int, long, long), int>();
+			foreach (var tile in candidates)
+			{
+				var area = GetEvictionArea(tile);
+				if (!areaLastAccess.TryGetValue(area, out int lastAccess) || tile.last_access > lastAccess)
+				{
+					areaLastAccess[area] = tile.last_access;
+				}
+			}
+
+			return candidates
+				.OrderBy(tile => areaLastAccess[GetEvictionArea(tile)])
+				.ThenBy(tile => GetEvictionArea(tile))
+				.ThenBy(tile => tile.last_access)
+				.ThenBy(tile => tile.timestamp)
+				.ThenBy(tile => tile.id)
+				.ToList();
+		}
+
+		private static (int Zoom, long X, long Y) GetEvictionArea(tiles tile)
+		{
+			if (tile.zoom_level < EvictionAreaZoom)
+			{
+				return (tile.zoom_level, tile.tile_column, tile.tile_row);
+			}
+
+			int shift = tile.zoom_level - EvictionAreaZoom;
+			return (EvictionAreaZoom, tile.tile_column >> shift, tile.tile_row >> shift);
 		}
 
 		private void DeleteFile(List<tiles> tilesToDelete)

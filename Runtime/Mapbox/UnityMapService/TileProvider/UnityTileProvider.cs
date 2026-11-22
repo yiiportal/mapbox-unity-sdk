@@ -310,17 +310,23 @@ namespace Mapbox.UnityMapService.TileProviders
 			LogTileBudgetTransition(tileBudget);
 		}
 
-		// FORK yiiportal: heading-biased prefetch expands only planes whose projected ahead point
-		// lies outside the current frustum; side planes containing that point are left unchanged.
-		public static bool ShouldExpandAhead(
-			Plane plane,
-			Vector3 cameraPosition,
-			Vector3 cameraForward,
-			float frustumBuffer)
+		// FORK yiiportal: heading-biased prefetch.
+		public static bool ShouldExpandSidePlane(Plane plane, Vector3 cameraForward, Vector3 groundUp)
 		{
-			Vector3 aheadPoint = cameraPosition + cameraForward * (frustumBuffer * 4f);
-			return plane.GetDistanceToPoint(aheadPoint) > frustumBuffer * 0.25f;
+			// Frustum plane normals point inward; the outward normal, flattened onto the ground,
+			// says which side of the cover the plane bounds. Only the side behind the heading is
+			// left unexpanded. A top-down camera has no heading, so every side expands.
+			Vector3 groundForward = Vector3.ProjectOnPlane(cameraForward, groundUp);
+			Vector3 groundOutward = Vector3.ProjectOnPlane(-plane.normal, groundUp);
+			if (groundForward.sqrMagnitude < 0.01f || groundOutward.sqrMagnitude < 0.0001f)
+			{
+				return true;
+			}
+
+			return Vector3.Dot(groundOutward.normalized, groundForward.normalized) > BehindPlaneDotThreshold;
 		}
+
+		private const float BehindPlaneDotThreshold = -0.5f;
 
 		private bool BuildTileCover(
 			IMapInformation mapInformation,
@@ -343,14 +349,14 @@ namespace Mapbox.UnityMapService.TileProviders
 			var camForward = cam.transform.forward;
 			var maxDistSq = cam.farClipPlane * cam.farClipPlane;
 
-			// Expand side frustum planes (indices 0-3) outward for buffer tile pre-loading. Applying
-			// the budget only to camera-facing planes biases prefetch ahead while staying inside the
-			// configured frustum bound. Near (4) and far (5) planes are left unchanged.
+			// Expand side frustum planes (indices 0-3) outward for buffer tile pre-loading, except the
+			// one behind the camera heading, which biases prefetch ahead. Near (4) and far (5) planes
+			// are left unchanged.
 			if (Settings.FrustumBuffer > 0f)
 			{
 				for (int i = 0; i < 4; i++)
 				{
-					if (ShouldExpandAhead(_planes[i], camPos, camForward, Settings.FrustumBuffer))
+					if (ShouldExpandSidePlane(_planes[i], camForward, Vector3.up))
 					{
 						_planes[i].distance += Settings.FrustumBuffer;
 					}

@@ -81,6 +81,22 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 
         }
 
+        // FORK yiiportal: shares this manager's disk caches (one SQLite connection per database)
+        // with a caller-owned memory cache and task manager. Disk integrity checks already ran.
+        private MapboxCacheManager(MapboxCacheManager diskOwner, UnityContext unityContext, MemoryCache memoryCache)
+        {
+            _taskManager = unityContext.TaskManager;
+            _memoryCache = memoryCache;
+            _textureFileCache = diskOwner._textureFileCache;
+            _sqLiteCache = diskOwner._sqLiteCache;
+            PinnedCacheManager = diskOwner.PinnedCacheManager;
+        }
+
+        public MapboxCacheManager CreateSibling(UnityContext unityContext, MemoryCache memoryCache)
+        {
+            return new MapboxCacheManager(this, unityContext, memoryCache);
+        }
+
         public void ClearCachedData()
         {
             _sqLiteCache.ClearDatabase();

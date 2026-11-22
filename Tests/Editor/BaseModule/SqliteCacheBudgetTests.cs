@@ -114,6 +114,23 @@ namespace Mapbox.BaseModuleTests
         }
 
         [Test]
+        public void PruneEvictsLeastRecentAreaBeforeOlderTileInRecentArea()
+        {
+            // 16/1/1 and 16/2/2 share z10 area (0,0); 16/200/200 is in area (3,3).
+            SyncAdd("mapbox.raster", 16, 1, 1, 400, forceInsert: true);
+            Thread.Sleep(1100);
+            SyncAdd("mapbox.raster", 16, 200, 200, 400, forceInsert: true);
+            Thread.Sleep(1100);
+            SyncAdd("mapbox.raster", 16, 2, 2, 400, forceInsert: true);
+            TriggerPruneWithZeroByteTiles("mapbox.raster", 21);
+
+            // Plain LRU would drop 16/1/1, the oldest row; area grouping keeps its neighbourhood.
+            Assert.IsTrue(TileExists("mapbox.raster", 16, 1, 1));
+            Assert.IsTrue(TileExists("mapbox.raster", 16, 2, 2));
+            Assert.IsFalse(TileExists("mapbox.raster", 16, 200, 200));
+        }
+
+        [Test]
         public void OrdinaryOverwritePreservesPinnedStatus()
         {
             SyncPinnedAdd("mapbox.raster", 16, 5, 5, BudgetBytes - 300);
