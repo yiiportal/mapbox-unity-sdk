@@ -108,6 +108,11 @@ namespace Mapbox.UnityMapService.DataSources
             _memoryCache.SetInactiveCapacity(capacity);
         }
 
+        public override void SetEvictionOrder(TileEvictionOrderSelector order)
+        {
+            _memoryCache.SetEvictionOrder(order);
+        }
+
         public virtual void ClearMemoryCache()
         {
             _memoryCache.OnDestroy();

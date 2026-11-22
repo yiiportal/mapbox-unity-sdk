@@ -130,6 +130,18 @@ namespace Mapbox.UnityMapService.DataSources
         {
             _retainedTileIds.Clear();
             _retainedTileIds.UnionWith(retainedTiles);
+            foreach (var tileId in retainedTiles)
+            {
+                // FORK yiiportal: low-zoom quadtree ancestors stay resident as raster fallbacks.
+                for (var parent = tileId.ParentAt(4); parent.Z >= 0; parent = parent.GetParentTileId)
+                {
+                    _retainedTileIds.Add(parent);
+                    if (parent.Z == 0)
+                    {
+                        break;
+                    }
+                }
+            }
 
             _activeRequestsToCancel.Clear();
             foreach (var activeTile in _waitingList)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Mapbox.BaseModule.Data.Platform.Cache;
 using Mapbox.BaseModule.Data.Tiles;
 
 namespace Mapbox.BaseModule.Data.DataFetchers
@@ -78,6 +79,9 @@ namespace Mapbox.BaseModule.Data.DataFetchers
 
 		// FORK yiiportal: pressure levels change the number of recently visible tiles retained.
 		public virtual void SetInactiveCapacity(int capacity) { }
+
+		// FORK yiiportal: spatial eviction delegates retention order to the tile family.
+		public virtual void SetEvictionOrder(TileEvictionOrderSelector order) { }
 		
 		//move this to imageSource after merging imagery&terrain modules
 		public virtual void DownloadAndCacheBaseTiles() { }

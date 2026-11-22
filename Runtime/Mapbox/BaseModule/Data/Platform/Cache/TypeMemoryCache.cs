@@ -8,6 +8,9 @@ using UnityEngine;
 
 namespace Mapbox.BaseModule.Data.Platform.Cache
 {
+    public delegate IEnumerable<CanonicalTileId> TileEvictionOrderSelector(
+        IReadOnlyCollection<CanonicalTileId> inactiveKeys);
+
     //this is a basic LRU (least recently used) cache but "used" comes from read/write action
     //retainTiles method provides in-use support; not sound but good enough
     public class TypeMemoryCache<T> : ITypeCache where T : MapboxTileData
@@ -50,6 +53,7 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
         private Dictionary<CanonicalTileId, T> _fallbackDatas;
         private HashSet<CanonicalTileId> _previousFrameTiles;
         private HashSet<CanonicalTileId> _tilesToDemote;
+        private TileEvictionOrderSelector _evictionOrder;
         
         public TypeMemoryCache(int cacheSize = 100)
         {
@@ -182,13 +186,80 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
 
                 if (_inactiveList.Count > _inactiveCapacity)
                 {
-                    var last = _inactiveList.Last;
+                    var last = SelectEvictionCandidate();
                     _inactiveList.RemoveLast();
-                    _inactiveMap.Remove(last.Value.key);
-                    CacheItemDisposed(last.Value.key);
-                    last.Value.value.Dispose();
+                    if (last != null)
+                    {
+                        _inactiveMap.Remove(last.Value.key);
+                        CacheItemDisposed(last.Value.key);
+                        last.Value.value.Dispose();
+                    }
                 }
             }
+        }
+
+        // FORK yiiportal: callers can replace LRU with ring/cost-aware eviction.
+        public void SetEvictionOrder(TileEvictionOrderSelector evictionOrder)
+        {
+            if (!OnMainThread(nameof(SetEvictionOrder)))
+                return;
+
+            _evictionOrder = evictionOrder;
+            if (_inactiveList.Count <= _inactiveCapacity)
+                return;
+
+            while (_inactiveList.Count > _inactiveCapacity)
+            {
+                var candidate = SelectEvictionCandidate();
+                if (candidate == null)
+                    return;
+
+                _inactiveList.Remove(candidate);
+                _inactiveMap.Remove(candidate.Value.key);
+                CacheItemDisposed(candidate.Value.key);
+                candidate.Value.value.Dispose();
+            }
+        }
+
+        private LinkedListNode<(CanonicalTileId key, T value)> SelectEvictionCandidate()
+        {
+            if (_inactiveList.Count == 0)
+                return null;
+
+            if (_evictionOrder == null)
+                return _inactiveList.Last;
+
+            var keys = new CanonicalTileId[_inactiveList.Count];
+            var keyIndex = 0;
+            foreach (var entry in _inactiveList)
+            {
+                keys[keyIndex++] = entry.key;
+            }
+            var retentionOrder = (_evictionOrder(keys) ?? DefaultRetentionOrder(keys)).ToList();
+            var retentionSet = new HashSet<CanonicalTileId>(retentionOrder);
+            var unorderedKey = keys.FirstOrDefault(key => !retentionSet.Contains(key));
+            if (_inactiveMap.TryGetValue(unorderedKey, out var unorderedNode))
+                return unorderedNode;
+
+            CanonicalTileId evictionKey = default;
+            foreach (var key in retentionOrder)
+            {
+                if (_inactiveMap.ContainsKey(key))
+                {
+                    evictionKey = key;
+                    break;
+                }
+            }
+
+            return _inactiveMap.TryGetValue(evictionKey, out var node)
+                ? node
+                : _inactiveList.Last;
+        }
+
+        private static IEnumerable<CanonicalTileId> DefaultRetentionOrder(
+            IReadOnlyCollection<CanonicalTileId> inactiveKeys)
+        {
+            return inactiveKeys.Reverse();
         }
         
         public void MarkFallback(CanonicalTileId dataTileId)
@@ -235,11 +306,14 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             _inactiveCapacity = capacity;
             while (_inactiveList.Count > _inactiveCapacity)
             {
-                var last = _inactiveList.Last;
-                _inactiveList.RemoveLast();
-                _inactiveMap.Remove(last.Value.key);
-                CacheItemDisposed(last.Value.key);
-                last.Value.value.Dispose();
+                var candidate = SelectEvictionCandidate();
+                if (candidate == null)
+                    return;
+
+                _inactiveList.Remove(candidate);
+                _inactiveMap.Remove(candidate.Value.key);
+                CacheItemDisposed(candidate.Value.key);
+                candidate.Value.value.Dispose();
             }
         }
 

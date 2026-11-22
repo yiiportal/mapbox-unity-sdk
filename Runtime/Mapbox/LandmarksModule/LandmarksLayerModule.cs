@@ -153,6 +153,7 @@ namespace Mapbox.LandmarksModule
 			_buildingSource.SetInactiveCapacity(capacity);
 
 		private readonly Predicate<CanonicalTileId> _isUnresolved;
+		private readonly SpatialRingPolicy _ringPolicy = new();
 
 		/// <param name="dataCacheSize">FORK yiiportal: how many landmark tiles outside the current
 		/// cover stay resident. Evicting a tile's data is what releases its visuals, so this is the
@@ -170,6 +171,7 @@ namespace Mapbox.LandmarksModule
 			_isUnresolved = tileId => !IsResolved(tileId);
 			_buildingSource = mapService.GetBuildingSource(new VectorSourceSettings() { TilesetId = sourceId, CacheSize = dataCacheSize });
 			_buildingSource.CacheItemDisposed += ClearDisposedDataVisual;
+			_buildingSource.SetEvictionOrder(_ringPolicy.GetRetentionOrder());
 			_meshGenerationUnit = new GltfVisualizer(_unityContext, _mapInformation, buildingMaterial);
 		}
 
@@ -239,6 +241,20 @@ namespace Mapbox.LandmarksModule
 
 		public virtual bool RetainTiles(HashSet<CanonicalTileId> retainedTiles)
 		{
+			float now = Time.realtimeSinceStartup;
+			_ringPolicy.BeginRetainPass(
+				GetDataCenterTile(),
+				_mapInformation?.Bearing ?? 0f,
+				now,
+				_protectedTiles);
+			foreach (var tileId in retainedTiles ?? Enumerable.Empty<CanonicalTileId>())
+			{
+				if (GetDataId(tileId, out var targetId))
+				{
+					_ringPolicy.Touch(targetId, now);
+				}
+			}
+
 			UpdateRetainedList(retainedTiles);
 			if (SuspendNewLoads)
 			{
@@ -635,6 +651,18 @@ namespace Mapbox.LandmarksModule
 				targetId = tileId;
 				return false;
 			}
+		}
+
+		private CanonicalTileId GetDataCenterTile()
+		{
+			if (_mapInformation == null)
+				return default;
+
+			var center = _mapInformation.LatitudeLongitude;
+			return Conversions.LatitudeLongitudeToTileId(
+				center.Latitude,
+				center.Longitude,
+				LandmarkDataZoom).Canonical;
 		}
 
 		/// <summary>

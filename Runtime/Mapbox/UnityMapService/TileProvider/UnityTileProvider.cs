@@ -310,6 +310,12 @@ namespace Mapbox.UnityMapService.TileProviders
 			LogTileBudgetTransition(tileBudget);
 		}
 
+		// FORK yiiportal: heading-biased prefetch selects the camera-facing side of each side plane.
+		public static bool ShouldExpandAhead(Vector3 planeNormal, Vector3 cameraForward)
+		{
+			return Vector3.Dot(planeNormal, cameraForward) > 0f;
+		}
+
 		private bool BuildTileCover(
 			IMapInformation mapInformation,
 			TileCover tileCover,
@@ -331,12 +337,18 @@ namespace Mapbox.UnityMapService.TileProviders
 			var camForward = cam.transform.forward;
 			var maxDistSq = cam.farClipPlane * cam.farClipPlane;
 
-			// Expand the 4 side frustum planes (indices 0-3) outward for buffer tile pre-loading.
-			// Near (4) and far (5) planes are left unchanged.
+			// Expand side frustum planes (indices 0-3) outward for buffer tile pre-loading. Applying
+			// the budget only to camera-facing planes biases prefetch ahead while staying inside the
+			// configured frustum bound. Near (4) and far (5) planes are left unchanged.
 			if (Settings.FrustumBuffer > 0f)
 			{
 				for (int i = 0; i < 4; i++)
-					_planes[i].distance += Settings.FrustumBuffer;
+				{
+					if (ShouldExpandAhead(_planes[i].normal, camForward))
+					{
+						_planes[i].distance += Settings.FrustumBuffer;
+					}
+				}
 			}
 			var worldCenter = mapInformation.CenterMercator;
 			var scale = mapInformation.Scale;
