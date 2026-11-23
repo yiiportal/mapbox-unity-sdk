@@ -362,6 +362,13 @@ namespace Mapbox.BaseModule.Data.Platform.Cache
             _sqLiteCache.RemoveData(tilesetId, zoom, x, y);
         }
 
+        // FORK yiiportal: RemoveData drops only the index row; a raster tile's image file would be orphaned.
+        public void RemoveTile(string tilesetId, CanonicalTileId tileId)
+        {
+            _sqLiteCache.RemoveData(tilesetId, tileId.Z, tileId.X, tileId.Y);
+            _textureFileCache?.DeleteTileFile(new RasterData { TileId = tileId, TilesetId = tilesetId });
+        }
+
         public void SetPinned(string tilesetId, CanonicalTileId tileId, bool pinned)
         {
             if (_sqLiteCache is SqliteCache sqliteCache)
