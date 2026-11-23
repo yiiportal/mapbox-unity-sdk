@@ -58,7 +58,9 @@ namespace Mapbox.BaseModule.Map
             if (!string.IsNullOrEmpty(AccessTokenOverride))
             {
                 config.AccessToken = AccessTokenOverride;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Debug.Log("MapboxContext: Using access token override.");
+#endif
             }
             else if (string.IsNullOrEmpty(config.AccessToken))
             {
@@ -91,7 +93,9 @@ namespace Mapbox.BaseModule.Map
 
             if (SkipTokenValidation)
             {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Debug.Log("MapboxContext: Skipping token validation.");
+#endif
                 _mapboxToken = new MapboxToken { Status = MapboxTokenStatus.TokenValid };
                 Configuration = config;
                 ConfigureTelemetry();

@@ -131,10 +131,14 @@ namespace Mapbox.BaseModule.Map
         public virtual IEnumerator LoadTileCoverToMemory(TileCover tileCover)
         {
             var hashsetTiles = new HashSet<CanonicalTileId>(tileCover.Tiles.Select(x => x.Canonical));
-            var coroutines = LayerModules.SelectMany(x => x.GetTileCoverCoroutines(hashsetTiles).Where(x => x != null));
+            var coroutines = LayerModules.SelectMany(x => x.GetTileCoverCoroutines(hashsetTiles).Where(x => x != null)).ToList();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             Debug.Log($"MapboxMapVisualizer: LoadTileCoverToMemory tiles={hashsetTiles.Count} coroutines={coroutines.Count()}");
+#endif
             yield return coroutines.WaitForAll();
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             Debug.Log("MapboxMapVisualizer: LoadTileCoverToMemory completed");
+#endif
         }
 
         public virtual void Load(TileCover tileCover)

@@ -499,11 +499,13 @@ namespace Mapbox.UnityMapService.TileProviders
 				Debug.LogWarning(
 					$"UnityTileProvider: cover budget applied budget={tileBudget}, requestedMaxZoom={LastRequestedMaximumZoom}, appliedMaxZoom={LastAppliedMaximumZoom}, tiles={LastAppliedTileCount}.");
 			}
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 			else if (tileBudget > 0)
 			{
 				Debug.Log(
 					$"UnityTileProvider: cover returned within budget budget={tileBudget}, maxZoom={LastAppliedMaximumZoom}, tiles={LastAppliedTileCount}.");
 			}
+#endif
 		}
 
 		/// <summary>

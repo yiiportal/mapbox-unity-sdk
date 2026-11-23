@@ -84,7 +84,9 @@ namespace Mapbox.Example.Scripts.Map
             else
             {
                 int enabledCount = moduleScripts.Count(m => m != null && m.enabled);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 Debug.Log($"MapboxMapBehaviour: Found {moduleScripts.Length} module script(s), enabled {enabledCount}.");
+#endif
             }
 
             var mapboxContext = new MapboxContext();

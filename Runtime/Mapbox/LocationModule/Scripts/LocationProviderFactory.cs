@@ -119,7 +119,9 @@ namespace Mapbox.LocationModule
 				// }
 			}
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
 			Debug.Log($"MAPBOX_UNITY_SDK:  LocationProviderFactory: Injected Location Provider - {DefaultLocationProvider.GetType()}");
+#endif
 
 			if (DefaultLocationProvider.GetType() != typeof(StaticLocationProvider))
 			{

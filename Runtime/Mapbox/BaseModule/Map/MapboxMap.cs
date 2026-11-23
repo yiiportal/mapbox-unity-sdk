@@ -129,18 +129,24 @@ namespace Mapbox.BaseModule.Map
         public IEnumerator LoadMapViewCoroutine(LatitudeLongitude targetLocation, Action callback = null)
         {
             Status = InitializationStatus.LoadingView;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             Debug.Log($"MapboxMap: LoadMapView started. Target={targetLocation.Latitude:F5},{targetLocation.Longitude:F5}");
+#endif
             LoadViewStarting();
             MapInformation.SetLatitudeLongitude(targetLocation);
             
             MapService.TileCover(MapInformation, TileCover);
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             Debug.Log($"MapboxMap: TileCover size={TileCover.Tiles.Count}");
+#endif
             yield return MapVisualizer.LoadTileCoverToMemory(TileCover);
             MapVisualizer.LoadSnapshot(TileCover);
             
             LoadViewCompleted();
             Status = InitializationStatus.ReadyForUpdates;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             Debug.Log("MapboxMap: LoadMapView completed.");
+#endif
             callback?.Invoke();
         }
 
